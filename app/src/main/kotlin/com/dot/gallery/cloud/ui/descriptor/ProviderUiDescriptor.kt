@@ -139,6 +139,43 @@ object ProviderUiDescriptors {
             )
         )
 
+        put(
+            ProviderType.PHOTOPRISM,
+            ProviderUiDescriptor(
+                providerType = ProviderType.PHOTOPRISM,
+                category = ProviderCategory.STANDALONE,
+                icon = Icons.Outlined.Cloud,
+                iconRes = R.drawable.ic_provider_photoprism,
+                urlRegex = httpRegex,
+                urlHintRes = R.string.cloud_server_url_hint,
+                setupHintRes = R.string.cloud_help_photoprism,
+                credentialFields = listOf(
+                    CredentialField(
+                        kind = CredentialFieldKind.API_KEY,
+                        labelRes = R.string.cloud_photoprism_token,
+                        hintRes = R.string.cloud_photoprism_token_hint,
+                        isSecret = true
+                    ),
+                    CredentialField(
+                        kind = CredentialFieldKind.USERNAME,
+                        labelRes = R.string.cloud_photoprism_username,
+                        hintRes = R.string.cloud_photoprism_username_hint,
+                        visibleWhen = { it.apiKey.isBlank() }
+                    ),
+                    CredentialField(
+                        kind = CredentialFieldKind.PASSWORD,
+                        labelRes = R.string.cloud_password,
+                        isSecret = true,
+                        keyboardType = KeyboardType.Password,
+                        visibleWhen = { it.apiKey.isBlank() }
+                    )
+                ),
+                credentialsSatisfied = {
+                    it.apiKey.isNotBlank() || (it.username.isNotBlank() && it.password.isNotBlank())
+                }
+            )
+        )
+
         val webDavSatisfied: (CredentialValues) -> Boolean =
             { it.username.isNotBlank() && it.password.isNotBlank() }
         val webDavHints = mapOf(

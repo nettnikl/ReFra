@@ -77,7 +77,7 @@ class CloudMediaIdTest {
     fun idsAreUniqueAcrossAManyItemMultiAccountSet() {
         val ids = mutableSetOf<Long>()
         val providers = listOf(
-            ProviderType.IMMICH, ProviderType.OWNCLOUD, ProviderType.NEXTCLOUD,
+            ProviderType.IMMICH, ProviderType.PHOTOPRISM, ProviderType.OWNCLOUD, ProviderType.NEXTCLOUD,
             ProviderType.WEBDAV, ProviderType.SMB, ProviderType.NFS
         )
         var total = 0

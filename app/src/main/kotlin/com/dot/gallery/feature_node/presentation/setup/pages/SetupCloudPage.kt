@@ -281,6 +281,11 @@ private fun defaultCapabilitiesFor(type: ProviderType): Set<ProviderCapability> 
         ProviderCapability.ARCHIVE,
         ProviderCapability.MEMORIES
     )
+    ProviderType.PHOTOPRISM -> setOf(
+        ProviderCapability.REMOTE_ASSETS,
+        ProviderCapability.REMOTE_ALBUMS,
+        ProviderCapability.TEXT_SEARCH
+    )
     ProviderType.OWNCLOUD, ProviderType.NEXTCLOUD, ProviderType.WEBDAV -> setOf(
         ProviderCapability.REMOTE_ASSETS,
         ProviderCapability.REMOTE_ALBUMS,

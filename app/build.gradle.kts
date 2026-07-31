@@ -78,9 +78,9 @@ android {
     namespace = "com.dot.gallery"
     compileSdk = 37
 
-    // Native HEIC tiled decoder (libheif + libde265, built via CMake/NDK). Pinned to the latest
-    // stable NDK r29 line and CMake 3.31.x. CMake 4.x is intentionally avoided because it drops
-    // support for `cmake_minimum_required(VERSION < 3.5)`, which breaks libde265/libheif scripts.
+    // Native HEIC tiled decoder (libheif + libde265, built via CMake/NDK). CMakeLists requires
+    // >= 3.22.1. Avoid CMake 4.x: it drops support for `cmake_minimum_required(VERSION < 3.5)`,
+    // which breaks libde265/libheif scripts.
     ndkVersion = "29.0.14033849"
 
     defaultConfig {
@@ -109,7 +109,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.6"
+            version = "3.22.1"
         }
     }
 
@@ -133,6 +133,7 @@ android {
             buildConfigField("Boolean", "OFFLINE_MODE", "$isOffline")
             buildConfigField("Boolean", "MAPS_ENABLED", "$includeMaps")
             buildConfigField("Boolean", "IMMICH_ENABLED", "$includeImmich")
+            buildConfigField("Boolean", "PHOTOPRISM_ENABLED", "$includePhotoprism")
             buildConfigField("Boolean", "OWNCLOUD_ENABLED", "$includeOwncloud")
             buildConfigField("Boolean", "NEXTCLOUD_ENABLED", "$includeNextcloud")
             buildConfigField("Boolean", "WEBDAV_ENABLED", "$includeWebdav")
@@ -158,11 +159,16 @@ android {
                     "proguard-rules.pro"
                 )
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (file("release_key.jks").exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             buildConfigField("Boolean", "ALLOW_ALL_FILES_ACCESS", "$allowAllFilesAccess")
             buildConfigField("Boolean", "OFFLINE_MODE", "$isOffline")
             buildConfigField("Boolean", "MAPS_ENABLED", "$includeMaps")
             buildConfigField("Boolean", "IMMICH_ENABLED", "$includeImmich")
+            buildConfigField("Boolean", "PHOTOPRISM_ENABLED", "$includePhotoprism")
             buildConfigField("Boolean", "OWNCLOUD_ENABLED", "$includeOwncloud")
             buildConfigField("Boolean", "NEXTCLOUD_ENABLED", "$includeNextcloud")
             buildConfigField("Boolean", "WEBDAV_ENABLED", "$includeWebdav")
@@ -190,6 +196,7 @@ android {
             buildConfigField("Boolean", "OFFLINE_MODE", "$isOffline")
             buildConfigField("Boolean", "MAPS_ENABLED", "$includeMaps")
             buildConfigField("Boolean", "IMMICH_ENABLED", "$includeImmich")
+            buildConfigField("Boolean", "PHOTOPRISM_ENABLED", "$includePhotoprism")
             buildConfigField("Boolean", "OWNCLOUD_ENABLED", "$includeOwncloud")
             buildConfigField("Boolean", "NEXTCLOUD_ENABLED", "$includeNextcloud")
             buildConfigField("Boolean", "WEBDAV_ENABLED", "$includeWebdav")
@@ -207,6 +214,7 @@ android {
             buildConfigField("Boolean", "OFFLINE_MODE", "$isOffline")
             buildConfigField("Boolean", "MAPS_ENABLED", "$includeMaps")
             buildConfigField("Boolean", "IMMICH_ENABLED", "$includeImmich")
+            buildConfigField("Boolean", "PHOTOPRISM_ENABLED", "$includePhotoprism")
             buildConfigField("Boolean", "OWNCLOUD_ENABLED", "$includeOwncloud")
             buildConfigField("Boolean", "NEXTCLOUD_ENABLED", "$includeNextcloud")
             buildConfigField("Boolean", "WEBDAV_ENABLED", "$includeWebdav")
@@ -259,6 +267,11 @@ android {
                 kotlin.srcDir("src/immich/kotlin")
             } else {
                 kotlin.srcDir("src/noimmich/kotlin")
+            }
+            if (includePhotoprism) {
+                kotlin.srcDir("src/photoprism/kotlin")
+            } else {
+                kotlin.srcDir("src/nophotoprism/kotlin")
             }
             if (includeOwncloud) {
                 kotlin.srcDir("src/owncloud/kotlin")
@@ -502,12 +515,12 @@ dependencies {
     }
 
     implementation(libs.okhttp)
-    if (includeImmich || includeOwncloud || includeNextcloud || includeWebdav) {
+    if (includeImmich || includePhotoprism || includeOwncloud || includeNextcloud || includeWebdav) {
         implementation(libs.okhttp.logging)
     }
 
-    // Immich
-    if (includeImmich) {
+    // Immich / PhotoPrism (Retrofit)
+    if (includeImmich || includePhotoprism) {
         implementation(libs.retrofit)
         implementation(libs.retrofit.kotlinx.serialization)
         implementation(libs.retrofit.converter.gson)
@@ -567,6 +580,19 @@ val includeImmich: Boolean
             val properties = Properties()
             properties.load(FileInputStream(fl))
             properties.getProperty("INCLUDE_IMMICH", "false").toBoolean()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+val includePhotoprism: Boolean
+    get() {
+        if (isOffline) return false
+        val fl = rootProject.file("app.properties")
+        return try {
+            val properties = Properties()
+            properties.load(FileInputStream(fl))
+            properties.getProperty("INCLUDE_PHOTOPRISM", "false").toBoolean()
         } catch (_: Exception) {
             false
         }

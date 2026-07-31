@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class ProviderType(val displayName: String, val isRemote: Boolean) {
     IMMICH("Immich", isRemote = true),
+    PHOTOPRISM("PhotoPrism", isRemote = true),
     OWNCLOUD("ownCloud", isRemote = true),
     NEXTCLOUD("Nextcloud", isRemote = true),
     WEBDAV("WebDAV", isRemote = true),
@@ -23,6 +24,7 @@ enum class ProviderType(val displayName: String, val isRemote: Boolean) {
     val isIncludedInBuild: Boolean
         get() = when (this) {
             IMMICH -> BuildConfig.IMMICH_ENABLED
+            PHOTOPRISM -> BuildConfig.PHOTOPRISM_ENABLED
             OWNCLOUD -> BuildConfig.OWNCLOUD_ENABLED
             NEXTCLOUD -> BuildConfig.NEXTCLOUD_ENABLED
             WEBDAV -> BuildConfig.WEBDAV_ENABLED

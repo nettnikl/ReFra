@@ -59,6 +59,7 @@ import com.dot.gallery.feature_node.domain.model.MediaMetadataState
 import com.dot.gallery.feature_node.domain.model.MediaState
 import com.dot.gallery.feature_node.domain.model.isBigHeaderKey
 import com.dot.gallery.feature_node.domain.model.isHeaderKey
+import com.dot.gallery.feature_node.domain.util.dominantCityForMediaIds
 import com.dot.gallery.feature_node.presentation.mediaview.rememberedDerivedState
 import com.dot.gallery.feature_node.presentation.util.mediaSharedElement
 import com.dot.gallery.feature_node.presentation.util.photoGridDragHandler
@@ -349,6 +350,9 @@ private fun <T : Media> GridPinchZoomScope.MediaGridContentWithHeaders(
                             it.text
                                 .replace("Today", stringToday)
                                 .replace("Yesterday", stringYesterday)
+                        },
+                        location = remember(it.data, metadataState.value) {
+                            dominantCityForMediaIds(it.data, metadataState.value.metadataMap)
                         },
                         showAsBig = remember(it, bigHeaders) { it.key.isBigHeaderKey || bigHeaders },
                         bigHeaderOnly = bigHeaders,

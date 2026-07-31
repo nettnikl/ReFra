@@ -1333,6 +1333,9 @@
     <string name="cloud_photoprism_token_hint">Long-lived app password or access token</string>
     <string name="cloud_photoprism_username">Username or OAuth client ID</string>
     <string name="cloud_photoprism_username_hint">Account username, or OAuth2 client_id</string>
+    <string name="cloud_photoprism_albums_header">Albums</string>
+    <string name="cloud_photoprism_include_month_albums">Show month albums</string>
+    <string name="cloud_photoprism_include_month_albums_summary">Include PhotoPrism automatic calendar month albums in the albums list</string>
     <string name="cloud_help_owncloud">Enter your ownCloud server URL (e.g. https://cloud.example.com). Use your account username and password, or an app password if you have two-factor authentication enabled.</string>
     <string name="cloud_help_nextcloud">Enter your Nextcloud server URL (e.g. https://cloud.example.com). Use your username and an app password (Settings → Security → Devices &amp; sessions) — recommended over your login password.</string>
     <string name="cloud_help_webdav">Enter the full WebDAV endpoint URL provided by your host, then your WebDAV username and password.</string>

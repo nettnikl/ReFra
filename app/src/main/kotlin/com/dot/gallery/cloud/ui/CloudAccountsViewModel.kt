@@ -383,6 +383,14 @@ class CloudAccountsViewModel @Inject constructor(
             val entity = configDao.getById(configId) ?: return@launch
             val updated = entity.transform()
             configDao.update(updated)
+            val provider = registry.getByConfigId(configId) as? RemoteMediaProvider ?: return@launch
+            val config = updated.toCloudServerConfig().let { cfg ->
+                cfg.copy(
+                    apiKey = cfg.apiKey?.let { credentialEncryptor.decrypt(it) },
+                    password = cfg.password?.let { credentialEncryptor.decrypt(it) }
+                )
+            }
+            provider.configure(urlResolver.resolve(config))
         }
     }
 

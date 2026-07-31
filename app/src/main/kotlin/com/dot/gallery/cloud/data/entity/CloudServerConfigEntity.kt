@@ -55,7 +55,8 @@ data class CloudServerConfigEntity(
     @ColumnInfo(defaultValue = "0") val verboseLogging: Boolean = false,
     @ColumnInfo(defaultValue = "0") val syncRemoteDeletions: Boolean = false,
     @ColumnInfo(defaultValue = "0") val preferRemoteImages: Boolean = false,
-    @ColumnInfo(defaultValue = "0") val readOnlyMode: Boolean = false
+    @ColumnInfo(defaultValue = "0") val readOnlyMode: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val includeMonthAlbums: Boolean = false
 ) {
     fun toCloudServerConfig(): CloudServerConfig = CloudServerConfig(
         id = id,
@@ -89,7 +90,8 @@ data class CloudServerConfigEntity(
         verboseLogging = verboseLogging,
         syncRemoteDeletions = syncRemoteDeletions,
         preferRemoteImages = preferRemoteImages,
-        readOnlyMode = readOnlyMode
+        readOnlyMode = readOnlyMode,
+        includeMonthAlbums = includeMonthAlbums
     )
 
     companion object {
@@ -126,7 +128,8 @@ data class CloudServerConfigEntity(
                 verboseLogging = config.verboseLogging,
                 syncRemoteDeletions = config.syncRemoteDeletions,
                 preferRemoteImages = config.preferRemoteImages,
-                readOnlyMode = config.readOnlyMode
+                readOnlyMode = config.readOnlyMode,
+                includeMonthAlbums = config.includeMonthAlbums
             )
     }
 }

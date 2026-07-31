@@ -229,6 +229,59 @@ class PhotoPrismProviderMockServerTest {
         val albums = provider.getRemoteAlbums().first()
         assertTrue(albums is Resource.Success)
         assertEquals("Trip", (albums as Resource.Success).data!![0].name)
+
+        val albumRequests = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }.toList()
+            .filter { it.path?.contains("/api/v1/albums") == true }
+        assertTrue(albumRequests.isNotEmpty())
+        assertTrue(
+            "default albums fetch should request type=album",
+            albumRequests.any { it.requestUrl?.queryParameter("type") == "album" }
+        )
+        assertTrue(
+            "month albums must not be fetched when setting is off",
+            albumRequests.none { it.requestUrl?.queryParameter("type") == "month" }
+        )
+    }
+
+    @Test
+    fun getRemoteAlbumsIncludesMonthAlbumsWhenEnabled() = runBlocking {
+        val monthAlbumsJson = """
+            [{ "UID": "month-1", "Title": "January 2024", "PhotoCount": 2, "CreatedAt": "2024-01-01T00:00:00Z" }]
+        """.trimIndent()
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.contains("/api/v1/albums") == true -> {
+                    val type = req.requestUrl?.queryParameter("type")
+                    when (type) {
+                        "album", null -> json(albumsJson)
+                        "month" -> json(monthAlbumsJson)
+                        else -> MockResponse().setResponseCode(400)
+                    }
+                }
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5,
+            providerType = ProviderType.PHOTOPRISM,
+            serverUrl = baseUrl(),
+            apiKey = "KEY",
+            includeMonthAlbums = true
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+
+        val albums = provider.getRemoteAlbums().first()
+        assertTrue(albums is Resource.Success)
+        val names = (albums as Resource.Success).data!!.map { it.name }
+        assertEquals(listOf("Trip", "January 2024"), names)
+
+        val albumRequests = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }.toList()
+            .filter { it.path?.contains("/api/v1/albums") == true }
+        assertTrue(albumRequests.any { it.requestUrl?.queryParameter("type") == "album" })
+        assertTrue(albumRequests.any { it.requestUrl?.queryParameter("type") == "month" })
     }
 
     @Test

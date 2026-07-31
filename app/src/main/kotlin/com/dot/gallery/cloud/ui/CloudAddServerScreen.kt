@@ -5,6 +5,9 @@
 
 package com.dot.gallery.cloud.ui
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -60,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -71,6 +75,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dot.gallery.R
 import com.dot.gallery.cloud.core.ProviderType
+import com.dot.gallery.cloud.photoprism.ui.PhotoPrismBrowserLoginActivity
 import com.dot.gallery.cloud.ui.descriptor.CredentialField
 import com.dot.gallery.cloud.ui.descriptor.CredentialFieldKind
 import com.dot.gallery.cloud.ui.descriptor.CredentialValues
@@ -357,6 +362,21 @@ private fun CredentialsStep(
     credentialValues: CredentialValues,
     viewModel: CloudAccountsViewModel
 ) {
+    val context = LocalContext.current
+    val browserLoginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val token = result.data
+            ?.getStringExtra(PhotoPrismBrowserLoginActivity.EXTRA_ACCESS_TOKEN)
+            ?.trim()
+            .orEmpty()
+        if (token.isNotBlank()) {
+            viewModel.applyBrowserSessionToken(token)
+            viewModel.testConnection()
+        }
+    }
+
     AppTextField(
         value = state.displayName,
         onValueChange = viewModel::updateDisplayName,
@@ -366,6 +386,49 @@ private fun CredentialsStep(
         containerColor = Color.Transparent,
         singleLine = true
     )
+
+    if (state.providerType == ProviderType.PHOTOPRISM) {
+        Spacer(modifier.height(16.dp))
+        SetupButton(
+            text = stringResource(R.string.cloud_photoprism_browser_sign_in),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            enabled = state.serverUrl.isNotBlank() && !state.isTesting && !state.isSaving,
+            applyHorizontalPadding = false,
+            applyBottomPadding = false,
+            applyInsets = false,
+            onClick = {
+                browserLoginLauncher.launch(
+                    PhotoPrismBrowserLoginActivity.createIntent(context, state.serverUrl.trim())
+                )
+            }
+        )
+        if (state.apiKey.isNotBlank() && state.username.isBlank() && state.password.isBlank()) {
+            Spacer(modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    stringResource(R.string.cloud_photoprism_browser_success),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        Spacer(modifier.height(8.dp))
+        Text(
+            stringResource(R.string.cloud_photoprism_browser_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     descriptor.credentialFields.forEach { field ->
         if (!field.visibleWhen(credentialValues)) return@forEach
         val value = when (field.kind) {
@@ -381,7 +444,7 @@ private fun CredentialsStep(
         Spacer(Modifier.height(16.dp))
         CredentialTextField(field = field, value = value, onValueChange = onValueChange)
     }
-    Spacer(Modifier.height(16.dp))
+    Spacer(modifier.height(16.dp))
     SetupButton(
         text = if (state.isTesting) stringResource(R.string.cloud_testing)
                else stringResource(R.string.cloud_test_connection),

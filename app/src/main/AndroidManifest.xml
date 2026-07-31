@@ -92,6 +92,28 @@
             android:theme="@style/Theme.Gallery.Splash">
         </activity>
 
+        <!-- PhotoPrism OIDC / browser login: WebView + optional deep-link token handoff -->
+        <activity
+            android:name=".cloud.photoprism.ui.PhotoPrismBrowserLoginActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|keyboard|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.Gallery">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="refragallery"
+                    android:host="photoprism"
+                    android:pathPrefix="/callback" />
+                <data
+                    android:scheme="refragallery"
+                    android:host="photoprism"
+                    android:pathPrefix="/auth" />
+            </intent-filter>
+        </activity>
+
         <activity-alias
             android:name=".Launcher_ReFra"
             android:label="@string/app_name"

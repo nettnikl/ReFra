@@ -105,7 +105,15 @@ object AppModule {
         eventHandler: EventHandler,
         database: InternalDatabase
     ): MediaDistributor = StartupTracer.trace("AppModule.provideMediaDistributor") {
-        MediaDistributorImpl(context, repository, cloudRepository, eventHandler, workManager, database.getScannedMediaDao())
+        MediaDistributorImpl(
+            context,
+            repository,
+            cloudRepository,
+            database.getCloudAlbumMemberDao(),
+            eventHandler,
+            workManager,
+            database.getScannedMediaDao()
+        )
     }
 
     @Provides

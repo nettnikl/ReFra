@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 41,
-    "identityHash": "pending_room_export___________",
+    "identityHash": "17b01d37fdd79e235700048051c14bf3",
     "entities": [
       {
         "tableName": "pinned_table",
@@ -2427,7 +2427,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'pending_room_export___________')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '17b01d37fdd79e235700048051c14bf3')"
     ]
   }
 }

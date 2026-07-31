@@ -39,6 +39,19 @@ interface CloudMediaDao {
     @Query("SELECT * FROM cloud_media WHERE remoteId = :remoteId AND providerType = :providerType")
     suspend fun getByRemoteId(remoteId: String, providerType: ProviderType): CloudMediaEntity?
 
+    @Query(
+        """
+        SELECT * FROM cloud_media
+        WHERE providerType = :providerType AND serverConfigId = :serverConfigId
+          AND remoteId IN (:remoteIds)
+        """
+    )
+    suspend fun getByRemoteIds(
+        remoteIds: List<String>,
+        providerType: ProviderType,
+        serverConfigId: Long
+    ): List<CloudMediaEntity>
+
     @Query("SELECT * FROM cloud_media WHERE contentHash = :hash LIMIT 1")
     suspend fun getByContentHash(hash: String): CloudMediaEntity?
 
@@ -92,6 +105,10 @@ interface CloudMediaDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<CloudMediaEntity>)
+
+    /** Insert only rows that do not already exist; never REPLACE / clobber favorites or EXIF. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllIgnore(items: List<CloudMediaEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: CloudMediaEntity)

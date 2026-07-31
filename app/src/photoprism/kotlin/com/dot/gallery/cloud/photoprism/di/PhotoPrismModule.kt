@@ -9,6 +9,7 @@ import android.content.Context
 import com.dot.gallery.cloud.core.MediaCapabilityProvider
 import com.dot.gallery.cloud.core.ProviderInstanceFactory
 import com.dot.gallery.cloud.core.ProviderType
+import com.dot.gallery.cloud.data.dao.CloudAlbumMemberDao
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
 import com.dot.gallery.cloud.photoprism.PhotoPrismProvider
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthInterceptor
@@ -29,10 +30,11 @@ object PhotoPrismModule {
     @IntoSet
     fun providePhotoPrismProviderFactory(
         @ApplicationContext context: Context,
-        cloudMediaDao: CloudMediaDao
+        cloudMediaDao: CloudMediaDao,
+        cloudAlbumMemberDao: CloudAlbumMemberDao
     ): ProviderInstanceFactory = object : ProviderInstanceFactory {
         override val providerType = ProviderType.PHOTOPRISM
         override fun create(): MediaCapabilityProvider =
-            PhotoPrismProvider(context, PhotoPrismAuthInterceptor(), cloudMediaDao)
+            PhotoPrismProvider(context, PhotoPrismAuthInterceptor(), cloudMediaDao, cloudAlbumMemberDao)
     }
 }

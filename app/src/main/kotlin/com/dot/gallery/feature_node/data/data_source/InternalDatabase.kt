@@ -12,6 +12,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.AutoMigrationSpec
 import com.dot.gallery.cloud.data.CloudConverters
+import com.dot.gallery.cloud.data.dao.CloudAlbumMemberDao
 import com.dot.gallery.cloud.data.dao.CloudAlbumSyncDao
 import com.dot.gallery.cloud.data.dao.CloudDeleteLocalPrefDao
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
@@ -21,6 +22,7 @@ import com.dot.gallery.cloud.data.dao.DetectedFaceDao
 import com.dot.gallery.cloud.data.dao.CloudUploadPrefDao
 import com.dot.gallery.cloud.data.dao.PersonDao
 import com.dot.gallery.cloud.data.dao.SyncStateDao
+import com.dot.gallery.cloud.data.entity.CloudAlbumMemberEntity
 import com.dot.gallery.cloud.data.entity.CloudAlbumSyncEntity
 import com.dot.gallery.cloud.data.entity.CloudMediaEntity
 import com.dot.gallery.cloud.data.entity.CloudOfflinePinEntity
@@ -90,13 +92,14 @@ import com.dot.gallery.feature_node.domain.util.Converters
         OcrResultEntity::class,
         SyncStateEntity::class,
         CloudAlbumSyncEntity::class,
+        CloudAlbumMemberEntity::class,
         CloudUploadPrefEntity::class,
         CloudDeleteLocalPrefEntity::class,
         CloudOfflinePinEntity::class,
         AlbumSection::class,
         AlbumSectionMember::class
     ],
-    version = 40,
+    version = 41,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
@@ -142,6 +145,7 @@ import com.dot.gallery.feature_node.domain.util.Converters
         // (global per-album delete-local table)
         AutoMigration(from = 38, to = 39), // cloud_offline_pin (accounts marked available offline)
         AutoMigration(from = 39, to = 40), // people.hidden (on-device Person grouping)
+        AutoMigration(from = 40, to = 41), // cloud_album_members (multi-album membership)
     ]
 )
 @TypeConverters(Converters::class, CloudConverters::class)
@@ -191,6 +195,8 @@ abstract class InternalDatabase : RoomDatabase() {
     abstract fun getSyncStateDao(): SyncStateDao
 
     abstract fun getCloudAlbumSyncDao(): CloudAlbumSyncDao
+
+    abstract fun getCloudAlbumMemberDao(): CloudAlbumMemberDao
 
     abstract fun getCloudUploadPrefDao(): CloudUploadPrefDao
 

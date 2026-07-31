@@ -17,7 +17,9 @@ import com.dot.gallery.cloud.core.ProviderCapability
 import com.dot.gallery.cloud.core.ProviderType
 import com.dot.gallery.cloud.core.ThumbnailSize
 import com.dot.gallery.cloud.core.capabilities.RemoteMediaProvider
+import com.dot.gallery.cloud.data.dao.CloudAlbumMemberDao
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
+import com.dot.gallery.cloud.data.entity.CloudAlbumMemberEntity
 import com.dot.gallery.cloud.data.entity.CloudMediaEntity
 import com.dot.gallery.cloud.network.LanBindingSocketFactory
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismApiService
@@ -48,7 +50,8 @@ import kotlin.coroutines.cancellation.CancellationException
 class PhotoPrismProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val authInterceptor: PhotoPrismAuthInterceptor,
-    private val cloudMediaDao: CloudMediaDao
+    private val cloudMediaDao: CloudMediaDao,
+    private val cloudAlbumMemberDao: CloudAlbumMemberDao
 ) : RemoteMediaProvider, Disconnectable {
 
     override val providerType = ProviderType.PHOTOPRISM
@@ -167,6 +170,43 @@ class PhotoPrismProvider @Inject constructor(
         }
         rememberHashes(entities)
         return entities
+    }
+
+    /**
+     * Seed cache with album members that are not yet stored, without REPLACE-clobbering
+     * favorites / EXIF / local copies on existing rows. Prefer Room rows when returning.
+     */
+    private suspend fun mergeAlbumMedia(fromApi: List<CloudMediaEntity>): List<CloudMediaEntity> {
+        if (fromApi.isEmpty()) return emptyList()
+        cloudMediaDao.insertAllIgnore(fromApi)
+        val configId = fromApi.first().serverConfigId
+        // Chunk to stay under SQLite's ~999 bind-variable limit (ids + provider/config params).
+        val existing = fromApi.map { it.remoteId }.chunked(500).flatMap { chunk ->
+            cloudMediaDao.getByRemoteIds(
+                remoteIds = chunk,
+                providerType = ProviderType.PHOTOPRISM,
+                serverConfigId = configId
+            )
+        }.associateBy { it.remoteId }
+        return fromApi.map { api -> existing[api.remoteId] ?: api }
+    }
+
+    private suspend fun persistAlbumMembership(albumId: String, media: List<CloudMediaEntity>) {
+        val configId = currentConfig?.id ?: 0L
+        if (media.isEmpty()) {
+            cloudAlbumMemberDao.deleteAlbum(albumId, ProviderType.PHOTOPRISM, configId)
+            return
+        }
+        cloudAlbumMemberDao.replaceAlbumMembers(
+            media.map {
+                CloudAlbumMemberEntity(
+                    albumId = albumId,
+                    remoteId = it.remoteId,
+                    providerType = ProviderType.PHOTOPRISM,
+                    serverConfigId = configId
+                )
+            }
+        )
     }
 
     private fun captureTokensFromHeaders(headers: okhttp3.Headers) {
@@ -454,9 +494,12 @@ class PhotoPrismProvider @Inject constructor(
             )
             if (response.isSuccessful) {
                 captureTokensFromHeaders(response.headers())
-                val entities = mapPhotos(response.body().orEmpty())
-                cloudMediaDao.insertAll(entities)
-                emit(Resource.Success(entities))
+                val fromApi = mapPhotos(response.body().orEmpty())
+                // Never REPLACE-clobber existing rows on album browse (favorites / EXIF / local copy).
+                // Insert missing only, keep membership in the junction table, return merged rows.
+                val merged = mergeAlbumMedia(fromApi)
+                persistAlbumMembership(albumId, merged)
+                emit(Resource.Success(merged))
             } else {
                 emit(Resource.Error("Failed to fetch album media: ${response.code()}"))
             }

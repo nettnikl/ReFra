@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 40,
-    "identityHash": "07ab1d23ad7aa56097b3f6d5d38f7542",
+    "version": 41,
+    "identityHash": "3c02c5cb378275cc2d03ef5dc79eddb9",
     "entities": [
       {
         "tableName": "pinned_table",
@@ -1567,7 +1567,6 @@
             "fieldPath": "encryptedAccessToken",
             "columnName": "encryptedAccessToken",
             "affinity": "TEXT",
-            "notNull": false,
             "defaultValue": "NULL"
           },
           {
@@ -2371,8 +2370,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '07ab1d23ad7aa56097b3f6d5d38f7542')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3c02c5cb378275cc2d03ef5dc79eddb9')"
     ]
-  },
-  "version": 41
+  }
 }

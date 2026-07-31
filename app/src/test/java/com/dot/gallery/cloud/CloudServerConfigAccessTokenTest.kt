@@ -47,4 +47,20 @@ class CloudServerConfigAccessTokenTest {
         // apiKey path for long-lived tokens remains independent
         assertNull(entity.apiKey)
     }
+
+    @Test
+    fun tokenOnlyConfigHasNoPassword() {
+        val config = CloudServerConfig(
+            id = 3L,
+            providerType = ProviderType.PHOTOPRISM,
+            serverUrl = "https://pp.example",
+            accessToken = "sess",
+            username = "oidc-user",
+            password = null
+        )
+        assertEquals("sess", config.accessToken)
+        assertNull(config.password)
+        assertNull(config.apiKey)
+    }
 }
+

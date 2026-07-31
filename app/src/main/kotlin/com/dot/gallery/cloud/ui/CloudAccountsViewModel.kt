@@ -307,11 +307,15 @@ class CloudAccountsViewModel @Inject constructor(
                     state.password.isBlank() -> null
                     else -> credentialEncryptor.encrypt(state.password)
                 }
+                // REPLACE insert would otherwise wipe a persisted session/OIDC token before
+                // registerAccount re-auths (fatal for token-only accounts with no password).
+                val existingAccessToken = state.savedConfigId?.let { configDao.getById(it)?.encryptedAccessToken }
                 val entity = CloudServerConfigEntity(
                     id = state.savedConfigId ?: 0L,
                     providerType = state.providerType,
                     serverUrl = state.serverUrl.trimEnd('/'),
                     apiKey = encryptedApiKey,
+                    encryptedAccessToken = existingAccessToken,
                     username = state.username.ifBlank { null },
                     encryptedPassword = encryptedPassword,
                     displayName = state.displayName.ifBlank {

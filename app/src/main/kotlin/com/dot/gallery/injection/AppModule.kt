@@ -48,6 +48,7 @@ import com.dot.gallery.core.memory.ByteArrayPool
 import com.dot.gallery.cloud.core.ProviderRegistry
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
 import com.dot.gallery.cloud.data.repository.CloudRepository
+import com.dot.gallery.cloud.offline.OfflineModeManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -120,8 +121,16 @@ object AppModule {
         workManager: WorkManager,
         providerRegistry: ProviderRegistry,
         cloudMediaDao: CloudMediaDao,
+        offlineModeManager: OfflineModeManager,
     ): MediaHandler = StartupTracer.trace("AppModule.provideMediaHandler") {
-        MediaHandlerImpl(mediaRepository, context, workManager, providerRegistry, cloudMediaDao)
+        MediaHandlerImpl(
+            mediaRepository,
+            context,
+            workManager,
+            providerRegistry,
+            cloudMediaDao,
+            offlineModeManager
+        )
     }
 
     @Provides

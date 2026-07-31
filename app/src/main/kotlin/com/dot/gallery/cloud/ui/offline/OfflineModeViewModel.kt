@@ -20,6 +20,7 @@ import com.dot.gallery.cloud.data.entity.CloudOfflinePinEntity
 import com.dot.gallery.cloud.offline.CacheAssetRef
 import com.dot.gallery.cloud.offline.CloudMediaCache
 import com.dot.gallery.cloud.offline.OfflineModeManager
+import com.dot.gallery.cloud.sync.CloudFavoriteOfflineWorker
 import com.dot.gallery.cloud.sync.CloudOfflineDownloadWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,7 @@ data class OfflineModeUiState(
     val connected: Boolean = true,
     val cacheOnView: Boolean = true,
     val cacheWifiOnly: Boolean = false,
+    val downloadFavoritesFullRes: Boolean = false,
     val budgetMb: Int = OfflineModeManager.DEFAULT_BUDGET_MB,
     val autoCacheBytes: Long = 0L,
     val pinnedBytes: Long = 0L,
@@ -101,23 +103,25 @@ class OfflineModeViewModel @Inject constructor(
             manager.connected,
             manager.cacheOnView,
             manager.cacheWifiOnly,
-            manager.budgetMbFlow
-        ) { force, connected, onView, wifiOnly, budget ->
+            manager.downloadFavoritesFullRes
+        ) { force, connected, onView, wifiOnly, favFullRes ->
             OfflineModeUiState(
                 forceOffline = force,
                 connected = connected,
                 cacheOnView = onView,
                 cacheWifiOnly = wifiOnly,
-                budgetMb = budget
+                downloadFavoritesFullRes = favFullRes
             )
         },
+        manager.budgetMbFlow,
         configDao.getAll(),
         pinDao.getAll(),
-        _sizes,
-        _downloadInfo
-    ) { base, configs, pins, sizes, dl ->
+        combine(_sizes, _downloadInfo) { sizes, dl -> sizes to dl }
+    ) { base, budget, configs, pins, sizesDl ->
+        val (sizes, dl) = sizesDl
         val pinnedIds = pins.map { it.serverConfigId }.toSet()
         base.copy(
+            budgetMb = budget,
             autoCacheBytes = sizes.auto,
             pinnedBytes = sizes.pinned,
             accounts = configs.filter { it.isActive }.map { c ->
@@ -167,6 +171,12 @@ class OfflineModeViewModel @Inject constructor(
     fun setForceOffline(enabled: Boolean) = viewModelScope.launch { manager.setForceOffline(enabled) }
     fun setCacheOnView(enabled: Boolean) = viewModelScope.launch { manager.setCacheOnView(enabled) }
     fun setCacheWifiOnly(enabled: Boolean) = viewModelScope.launch { manager.setCacheWifiOnly(enabled) }
+    fun setDownloadFavoritesFullRes(enabled: Boolean) = viewModelScope.launch {
+        manager.setDownloadFavoritesFullRes(enabled)
+        if (enabled) {
+            CloudFavoriteOfflineWorker.triggerNow(workManager, manager.cacheWifiOnlyNow)
+        }
+    }
     fun setBudgetMb(mb: Int) = viewModelScope.launch {
         manager.setBudgetMb(mb)
         withContext(Dispatchers.IO) { cache.trimAuto(mb.toLong() * 1024L * 1024L) }

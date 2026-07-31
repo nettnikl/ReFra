@@ -232,6 +232,65 @@ class PhotoPrismProviderMockServerTest {
     }
 
     @Test
+    fun toggleFavoriteLikeAndUnlikeUpdatesRoom() = runBlocking {
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.contains("/api/v1/photos") == true && req.method == "GET" ->
+                    json(photoJson, mapOf("X-Preview-Token" to "pt", "X-Download-Token" to "dt"))
+                req.path?.endsWith("/api/v1/photos/photo-1/like") == true && req.method == "POST" ->
+                    MockResponse().setResponseCode(200)
+                req.path?.endsWith("/api/v1/photos/photo-1/like") == true && req.method == "DELETE" ->
+                    MockResponse().setResponseCode(200)
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+
+        // Seed Room from a fetch so updateFavorite has a row to update.
+        val assets = provider.getRemoteAssets(0, 10).first()
+        assertTrue(assets is Resource.Success)
+        dao.insertAll((assets as Resource.Success).data!!)
+
+        assertTrue(provider.toggleFavorite("photo-1", true).isSuccess)
+        assertTrue(dao.getFavoritesAsync().any { it.remoteId == "photo-1" && it.favorite })
+
+        assertTrue(provider.toggleFavorite("photo-1", false).isSuccess)
+        assertTrue(dao.getFavoritesAsync().none { it.remoteId == "photo-1" })
+    }
+
+    @Test
+    fun toggleFavoriteFailureDoesNotFlipRoom() = runBlocking {
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.contains("/api/v1/photos") == true && req.method == "GET" ->
+                    json(photoJson)
+                req.path?.endsWith("/api/v1/photos/photo-1/like") == true ->
+                    MockResponse().setResponseCode(403)
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 6, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+        val assets = (provider.getRemoteAssets(0, 10).first() as Resource.Success).data!!
+        // Seed as not favorite so a failed like must not mark it favorite.
+        dao.insertAll(assets.map { it.copy(favorite = false) })
+
+        assertTrue(provider.toggleFavorite("photo-1", true).isFailure)
+        assertTrue(dao.getFavoritesAsync().none { it.remoteId == "photo-1" })
+    }
+
+    @Test
     fun sessionReauthOn401() = runBlocking {
         var photosHits = 0
         server.dispatcher = dispatcher { req ->

@@ -16,6 +16,8 @@ import com.dot.gallery.cloud.core.ProviderType
 import com.dot.gallery.cloud.core.capabilities.RemoteMediaProvider
 import com.dot.gallery.cloud.core.capabilities.SyncCapableProvider
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
+import com.dot.gallery.cloud.offline.OfflineModeManager
+import com.dot.gallery.cloud.sync.CloudFavoriteOfflineWorker
 import com.dot.gallery.core.decoder.format.ImageReencoder
 import com.dot.gallery.core.metadata.MetadataRemovalMode
 import com.dot.gallery.core.metadata.SanitizationCapability
@@ -46,7 +48,8 @@ class MediaHandlerImpl @Inject constructor(
     private val context: Context,
     private val workManager: WorkManager,
     private val providerRegistry: ProviderRegistry,
-    private val cloudMediaDao: CloudMediaDao
+    private val cloudMediaDao: CloudMediaDao,
+    private val offlineModeManager: OfflineModeManager
 ) : MediaHandler {
 
     private fun <T : Media> extractCloudInfo(media: T): Triple<String, String, Long>? {
@@ -74,36 +77,61 @@ class MediaHandlerImpl @Inject constructor(
         result: ActivityResultLauncher<IntentSenderRequest>,
         mediaList: List<T>,
         favorite: Boolean
-    ) {
+    ): Boolean {
         val (cloudMedia, localMedia) = mediaList.partition { it.isCloud }
         if (localMedia.isNotEmpty()) {
             repository.toggleFavorite(result, localMedia, favorite)
         }
-        if (cloudMedia.isNotEmpty()) {
-            withContext(Dispatchers.IO) {
-                cloudMedia.forEach { media ->
-                    val (providerName, remoteId, configId) = extractCloudInfo(media) ?: return@forEach
-                    val providerType = try { ProviderType.valueOf(providerName) } catch (_: Exception) { return@forEach }
-                    val provider = getCloudProvider(providerName, configId) ?: return@forEach
-                    provider.toggleFavorite(remoteId, favorite)
+        if (cloudMedia.isEmpty()) return true
+
+        var allSucceeded = true
+        var enqueuedOffline = false
+        withContext(Dispatchers.IO) {
+            for (media in cloudMedia) {
+                val (providerName, remoteId, configId) = extractCloudInfo(media) ?: run {
+                    allSucceeded = false
+                    continue
+                }
+                val providerType = try {
+                    ProviderType.valueOf(providerName)
+                } catch (_: Exception) {
+                    allSucceeded = false
+                    continue
+                }
+                val provider = getCloudProvider(providerName, configId) ?: run {
+                    allSucceeded = false
+                    continue
+                }
+                val toggleResult = provider.toggleFavorite(remoteId, favorite)
+                if (toggleResult.isSuccess) {
+                    // Local Room copy of favorite status — always after a successful remote/local toggle.
                     cloudMediaDao.updateFavorite(remoteId, providerType, favorite)
+                    if (favorite && offlineModeManager.downloadFavoritesFullResNow && !enqueuedOffline) {
+                        CloudFavoriteOfflineWorker.triggerNow(workManager, offlineModeManager.cacheWifiOnlyNow)
+                        enqueuedOffline = true
+                    }
+                } else {
+                    allSucceeded = false
                 }
             }
         }
+        return allSucceeded
     }
 
     override suspend fun <T : Media> toggleFavorite(
         result: ActivityResultLauncher<IntentSenderRequest>,
         mediaList: List<T>
-    ) {
+    ): Boolean {
         val turnToFavorite = mediaList.filter { it.favorite == 0 }
         val turnToNotFavorite = mediaList.filter { it.favorite == 1 }
+        var ok = true
         if (turnToFavorite.isNotEmpty()) {
-            toggleFavorite(result, turnToFavorite, true)
+            ok = toggleFavorite(result, turnToFavorite, true) && ok
         }
         if (turnToNotFavorite.isNotEmpty()) {
-            toggleFavorite(result, turnToNotFavorite, false)
+            ok = toggleFavorite(result, turnToNotFavorite, false) && ok
         }
+        return ok
     }
 
     override suspend fun <T : Media> trashMedia(

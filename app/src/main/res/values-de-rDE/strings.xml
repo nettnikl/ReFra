@@ -1077,7 +1077,7 @@
     <string name="cloud_last_connected">Zuletzt verbunden: %s</string>
     <string name="cloud_media">Cloud</string>
     <string name="cloud_sync_header">Synchronisation</string>
-    <string name="cloud_sync_now">Jetzt synchronisieren</string>
+    <string name="cloud_sync_now">Synchronisieren</string>
     <string name="cloud_sync_now_syncing">Synchronisieren…</string>
     <string name="cloud_sync_fetching_media">Medien werden abgerufen…</string>
     <string name="cloud_sync_synced_media">%d Medienelemente synchronisiert…</string>

@@ -57,7 +57,7 @@ object PhotoPrismSessionTokenExtractor {
      * Scans WebView localStorage + sessionStorage for a PhotoPrism session token.
      * Returns a JS expression that evaluates to a JSON string (token) or null.
      */
-    const val EXTRACT_TOKEN_JS: String = """
+    val EXTRACT_TOKEN_JS: String = """
         (function() {
           function scan(storage) {
             if (!storage) return null;

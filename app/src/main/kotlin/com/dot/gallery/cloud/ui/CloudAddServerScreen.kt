@@ -388,7 +388,7 @@ private fun CredentialsStep(
     )
 
     if (state.providerType == ProviderType.PHOTOPRISM) {
-        Spacer(modifier.height(16.dp))
+        Spacer(Modifier.height(16.dp))
         SetupButton(
             text = stringResource(R.string.cloud_photoprism_browser_sign_in),
             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -404,7 +404,7 @@ private fun CredentialsStep(
             }
         )
         if (state.apiKey.isNotBlank() && state.username.isBlank() && state.password.isBlank()) {
-            Spacer(modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -421,7 +421,7 @@ private fun CredentialsStep(
                 )
             }
         }
-        Spacer(modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             stringResource(R.string.cloud_photoprism_browser_hint),
             style = MaterialTheme.typography.bodySmall,
@@ -444,7 +444,7 @@ private fun CredentialsStep(
         Spacer(Modifier.height(16.dp))
         CredentialTextField(field = field, value = value, onValueChange = onValueChange)
     }
-    Spacer(modifier.height(16.dp))
+    Spacer(Modifier.height(16.dp))
     SetupButton(
         text = if (state.isTesting) stringResource(R.string.cloud_testing)
                else stringResource(R.string.cloud_test_connection),

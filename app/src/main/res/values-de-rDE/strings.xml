@@ -858,9 +858,10 @@
     <string name="cancel">Abbrechen</string>
     <string name="cast_connect">Übertragen</string>
     <string name="cast_disconnect">Trennen</string>
-    <string name="cast_select_device">Gerät auswählen</string>
+    <string name="cast_select_device">FCast-Gerät auswählen</string>
     <string name="cast_connected_to">Verbunden mit %1$s</string>
-    <string name="cast_searching">Geräte werden gesucht…</string>
+    <string name="cast_searching">Suche nach FCast-Geräten…</string>
+    <string name="cast_fcast_hint">Benötigt einen FCast-kompatiblen Empfänger im selben WLAN (mDNS _fcast._tcp., Standardport 46899). Nicht Chromecast, PhotoPrism oder Immich. Oder IP unten eingeben.</string>
     <string name="cast_casting_to">Übertragung zu %1$s</string>
     <string name="cast_stop">Übertragung beenden</string>
     <string name="cast_manual_connect">Manuell verbinden</string>

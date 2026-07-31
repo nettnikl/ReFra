@@ -271,4 +271,102 @@ class PhotoPrismProviderMockServerTest {
         )
         assertTrue("photos endpoint should be hit at least twice (401 then retry)", photosHits >= 2)
     }
+
+    @Test
+    fun capabilitiesIncludeMap() {
+        val caps = provider.capabilities.map { it.name }.toSet()
+        assertTrue(caps.containsAll(setOf(
+            "REMOTE_ASSETS", "REMOTE_ALBUMS", "FAVORITE", "TEXT_SEARCH", "MAP"
+        )))
+    }
+
+    @Test
+    fun getMapMarkersFromGeoJson() = runBlocking {
+        val geoJson = """
+            {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "geometry": { "type": "Point", "coordinates": [13.405, 52.52] },
+                  "properties": { "UID": "photo-geo-1", "Hash": "h1", "Title": "Berlin" }
+                },
+                {
+                  "type": "Feature",
+                  "geometry": { "type": "Point", "coordinates": [2.3522, 48.8566] },
+                  "properties": { "UID": "photo-geo-2", "Title": "Paris" }
+                }
+              ]
+            }
+        """.trimIndent()
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.contains("/api/v1/geo") == true -> json(geoJson)
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+
+        val result = provider.getMapMarkers().first()
+        assertTrue(result is Resource.Success)
+        val markers = (result as Resource.Success).data!!
+        assertEquals(2, markers.size)
+        assertEquals("photo-geo-1", markers[0].assetId)
+        assertEquals(52.52, markers[0].latitude, 0.0001)
+        assertEquals(13.405, markers[0].longitude, 0.0001)
+        assertEquals(ProviderType.PHOTOPRISM, markers[0].providerType)
+        assertEquals("photo-geo-2", markers[1].assetId)
+        assertEquals(48.8566, markers[1].latitude, 0.0001)
+    }
+
+    @Test
+    fun getMapMarkersFallsBackToGeotaggedPhotos() = runBlocking {
+        val photosWithGeo = """
+            [{
+              "UID": "photo-latlng",
+              "Type": "image",
+              "Title": "Somewhere",
+              "Hash": "hashg",
+              "Lat": 40.7128,
+              "Lng": -74.006,
+              "PlaceCity": "New York",
+              "PlaceCountry": "US",
+              "Files": [{
+                "UID": "f1", "Hash": "hashg", "Name": "a.jpg", "Size": 1,
+                "Primary": true, "Mime": "image/jpeg"
+              }]
+            }]
+        """.trimIndent()
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.contains("/api/v1/geo") == true ->
+                    MockResponse().setResponseCode(404)
+                req.path?.contains("/api/v1/photos") == true -> json(photosWithGeo)
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 6, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+
+        val result = provider.getMapMarkers().first()
+        assertTrue("expected success, got $result", result is Resource.Success)
+        val markers = (result as Resource.Success).data!!
+        assertEquals(1, markers.size)
+        assertEquals("photo-latlng", markers[0].assetId)
+        assertEquals(40.7128, markers[0].latitude, 0.0001)
+        assertEquals(-74.006, markers[0].longitude, 0.0001)
+        assertEquals("New York", markers[0].city)
+        assertEquals("US", markers[0].country)
+    }
 }

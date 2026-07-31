@@ -98,6 +98,8 @@ class PhotoPrismProviderMockServerTest {
             when {
                 req.path?.endsWith("/api/v1/config") == true ->
                     json("""{ "version": "240711", "name": "PP", "previewToken": "pt", "downloadToken": "dt" }""")
+                req.path?.endsWith("/api/v1/session") == true && req.method == "GET" ->
+                    json("""{ "access_token": "APP-PASS", "user": { "UID": "usertoken1", "Email": "a@b.c" } }""")
                 else -> null
             }
         }
@@ -110,6 +112,7 @@ class PhotoPrismProviderMockServerTest {
 
         assertTrue("auth should succeed: ${result.exceptionOrNull()}", result.isSuccess)
         assertEquals(ConnectionState.CONNECTED, provider.connectionState.value)
+        assertEquals("usertoken1", result.getOrNull()?.userId)
         val requests = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }.toList()
         assertTrue(requests.isNotEmpty())
         assertTrue(
@@ -203,6 +206,8 @@ class PhotoPrismProviderMockServerTest {
             when {
                 req.path?.endsWith("/api/v1/config") == true ->
                     json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.endsWith("/api/v1/session") == true && req.method == "GET" ->
+                    json("""{ "user": { "UID": "u-fetch" } }""")
                 req.path?.contains("/api/v1/photos") == true ->
                     json(photoJson, mapOf("X-Preview-Token" to "pt", "X-Download-Token" to "dt"))
                 req.path?.contains("/api/v1/albums") == true -> json(albumsJson)
@@ -229,6 +234,85 @@ class PhotoPrismProviderMockServerTest {
         val albums = provider.getRemoteAlbums().first()
         assertTrue(albums is Resource.Success)
         assertEquals("Trip", (albums as Resource.Success).data!![0].name)
+    }
+
+    @Test
+    fun uploadAssetThenImportWithUploadPath() = runBlocking {
+        val uploadPaths = mutableListOf<String>()
+        val importBodies = mutableListOf<String>()
+        server.dispatcher = dispatcher { req ->
+            val path = req.path.orEmpty()
+            when {
+                path.endsWith("/api/v1/session") && req.method == "POST" ->
+                    json(
+                        """{
+                          "access_token": "SESS1",
+                          "config": { "previewToken": "pt", "downloadToken": "dt" },
+                          "user": { "UID": "us56eo2vflczhcntsq", "Email": "a@b.c", "Admin": true }
+                        }"""
+                    )
+                path.contains("/api/v1/users/") && path.contains("/upload/") && req.method == "POST" -> {
+                    uploadPaths.add(path)
+                    json("""{"code":200,"message":"ok"}""")
+                }
+                path.contains("/api/v1/users/") && path.contains("/upload/") && req.method == "PUT" ->
+                    json("""{"code":200,"message":"processed"}""")
+                path.endsWith("/api/v1/import/") && req.method == "POST" -> {
+                    importBodies.add(req.body.readUtf8())
+                    json("""{"code":200,"message":"import completed"}""")
+                }
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(),
+            username = "admin", password = "secret"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+        assertTrue(
+            "PhotoPrism must advertise SYNC for backup UI",
+            provider.capabilities.contains(com.dot.gallery.cloud.core.ProviderCapability.SYNC)
+        )
+        assertTrue(provider is com.dot.gallery.cloud.core.capabilities.SyncCapableProvider)
+
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val temp = java.io.File(context.cacheDir, "pp_test_upload.jpg")
+        // Minimal JPEG SOI/EOI so ContentResolver can open a real file.
+        temp.writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte()))
+        val media = com.dot.gallery.feature_node.domain.model.Media.UriMedia(
+            id = 42L,
+            label = "pp_test_upload.jpg",
+            uri = android.net.Uri.fromFile(temp),
+            path = temp.absolutePath,
+            relativePath = "",
+            albumID = 1L,
+            albumLabel = "Camera",
+            timestamp = System.currentTimeMillis() / 1000,
+            fullDate = "2024",
+            mimeType = "image/jpeg",
+            favorite = 0,
+            trashed = 0,
+            size = temp.length()
+        )
+
+        while (server.takeRequest(50, TimeUnit.MILLISECONDS) != null) { /* drain auth */ }
+
+        val upload = provider.uploadAsset(media, null)
+        assertTrue("upload should succeed: ${upload.exceptionOrNull()}", upload.isSuccess)
+        assertTrue(uploadPaths.any { it.contains("/api/v1/users/us56eo2vflczhcntsq/upload/") })
+
+        val importPath = provider.currentUploadImportPath()
+        assertTrue("expected /upload/{token}", importPath?.startsWith("/upload/") == true)
+
+        val finalize = provider.afterUploadBatch()
+        assertTrue("import finalize should succeed: ${finalize.exceptionOrNull()}", finalize.isSuccess)
+        assertTrue("expected POST /api/v1/import/ body", importBodies.isNotEmpty())
+        assertTrue(
+            "import body must include upload path $importPath: ${importBodies.first()}",
+            importBodies.first().contains(importPath!!)
+        )
+        temp.delete()
     }
 
     @Test

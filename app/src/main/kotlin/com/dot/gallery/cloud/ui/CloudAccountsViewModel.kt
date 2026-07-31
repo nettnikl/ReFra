@@ -304,6 +304,9 @@ class CloudAccountsViewModel @Inject constructor(
                 val encryptedPassword = state.password.ifBlank { null }?.let {
                     credentialEncryptor.encrypt(it)
                 }
+                // REPLACE insert would wipe viewer/advanced prefs on edit — preserve them.
+                // New PhotoPrism accounts default to loading originals in the viewer (grid stays preview).
+                val existing = state.savedConfigId?.let { configDao.getById(it) }
                 val entity = CloudServerConfigEntity(
                     id = state.savedConfigId ?: 0L,
                     providerType = state.providerType,
@@ -321,7 +324,27 @@ class CloudAccountsViewModel @Inject constructor(
                     wifiOnly = state.wifiOnly,
                     autoUrlSwitch = state.autoUrlSwitch,
                     localWifiSsid = state.localWifiSsid.trim(),
-                    localServerUrl = state.localServerUrl.trim().trimEnd('/')
+                    localServerUrl = state.localServerUrl.trim().trimEnd('/'),
+                    loadPreviewImage = existing?.loadPreviewImage ?: true,
+                    loadOriginalImage = existing?.loadOriginalImage
+                        ?: (state.providerType == ProviderType.PHOTOPRISM),
+                    autoPlayVideos = existing?.autoPlayVideos ?: true,
+                    loopVideos = existing?.loopVideos ?: false,
+                    forceOriginalVideo = existing?.forceOriginalVideo ?: false,
+                    verboseLogging = existing?.verboseLogging ?: false,
+                    syncRemoteDeletions = existing?.syncRemoteDeletions ?: false,
+                    preferRemoteImages = existing?.preferRemoteImages ?: false,
+                    readOnlyMode = existing?.readOnlyMode ?: false,
+                    syncIntervalMinutes = existing?.syncIntervalMinutes ?: 360,
+                    cellularPhotos = existing?.cellularPhotos ?: false,
+                    cellularVideos = existing?.cellularVideos ?: false,
+                    requireCharging = existing?.requireCharging ?: false,
+                    syncAlbums = existing?.syncAlbums ?: false,
+                    showBackupTotalProgress = existing?.showBackupTotalProgress ?: true,
+                    showBackupDetailProgress = existing?.showBackupDetailProgress ?: false,
+                    notifyBackupFailures = existing?.notifyBackupFailures ?: true,
+                    externalUrls = existing?.externalUrls ?: "[]",
+                    lastConnected = existing?.lastConnected ?: 0L
                 )
                 val id = configDao.insert(entity)
 
@@ -522,6 +545,8 @@ class CloudAccountsViewModel @Inject constructor(
         wifiOnly = state.wifiOnly,
         autoUrlSwitch = state.autoUrlSwitch,
         localWifiSsid = state.localWifiSsid.trim(),
-        localServerUrl = state.localServerUrl.trim().trimEnd('/')
+        localServerUrl = state.localServerUrl.trim().trimEnd('/'),
+        // PhotoPrism grid stays on preview thumbs; viewer should fetch full originals by default.
+        loadOriginalImage = state.providerType == ProviderType.PHOTOPRISM,
     )
 }

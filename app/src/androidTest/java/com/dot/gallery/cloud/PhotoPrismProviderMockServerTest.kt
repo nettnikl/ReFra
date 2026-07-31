@@ -13,6 +13,7 @@ import com.dot.gallery.cloud.core.ConnectionState
 import com.dot.gallery.cloud.core.ProviderType
 import com.dot.gallery.cloud.core.ThumbnailSize
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
+import com.dot.gallery.cloud.data.entity.CloudMediaEntity
 import com.dot.gallery.cloud.photoprism.PhotoPrismProvider
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthInterceptor
 import com.dot.gallery.core.Resource
@@ -229,6 +230,66 @@ class PhotoPrismProviderMockServerTest {
         val albums = provider.getRemoteAlbums().first()
         assertTrue(albums is Resource.Success)
         assertEquals("Trip", (albums as Resource.Success).data!![0].name)
+    }
+
+    @Test
+    fun getOriginalUrlUsesFileIdWithoutWarmMap() = runBlocking {
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+
+        // No asset prefetch → hashByRemoteId is cold; URI/fileId must still build the download URL.
+        assertEquals("", provider.getOriginalUrl("photo-1"))
+        val url = provider.getOriginalUrl("photo-1", "hash1")
+        assertTrue("expected dl URL, got: $url", url.contains("/api/v1/dl/hash1"))
+        assertTrue("expected download token, got: $url", url.contains("t=dt"))
+        // Passing fileId should also warm the map for subsequent remoteId-only lookups.
+        assertTrue(provider.getOriginalUrl("photo-1").contains("/api/v1/dl/hash1"))
+    }
+
+    @Test
+    fun getOriginalUrlFallsBackToRoomFileId() = runBlocking {
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 6, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+        // Insert AFTER auth so hashByRemoteId was not warmed for this id — Room fallback only.
+        dao.insert(
+            CloudMediaEntity(
+                remoteId = "photo-room",
+                providerType = ProviderType.PHOTOPRISM,
+                serverConfigId = 6,
+                label = "room.jpg",
+                path = "room.jpg",
+                mimeType = "image/jpeg",
+                timestamp = 1L,
+                size = 1L,
+                width = 10,
+                height = 10,
+                fileId = "roomhash"
+            )
+        )
+
+        val url = provider.getOriginalUrl("photo-room")
+        assertTrue("expected Room-backed dl URL, got: $url", url.contains("/api/v1/dl/roomhash"))
+        assertTrue(url.contains("t=dt"))
     }
 
     @Test

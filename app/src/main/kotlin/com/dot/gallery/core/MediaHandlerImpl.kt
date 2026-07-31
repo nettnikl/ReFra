@@ -182,8 +182,10 @@ class MediaHandlerImpl @Inject constructor(
                     val (providerName, remoteId, configId) = extractCloudInfo(media) ?: return@forEach
                     val providerType = try { ProviderType.valueOf(providerName) } catch (_: Exception) { return@forEach }
                     val provider = getCloudProvider(providerName, configId) ?: return@forEach
-                    provider.deleteAsset(remoteId)
-                    cloudMediaDao.delete(remoteId, providerType)
+                    val result = provider.deleteAsset(remoteId)
+                    if (result.isSuccess) {
+                        cloudMediaDao.delete(remoteId, providerType)
+                    }
                 }
             }
         }

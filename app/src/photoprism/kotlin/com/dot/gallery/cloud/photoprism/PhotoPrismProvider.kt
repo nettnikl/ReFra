@@ -71,7 +71,9 @@ class PhotoPrismProvider @Inject constructor(
         ProviderCapability.REMOTE_ASSETS,
         ProviderCapability.REMOTE_ALBUMS,
         ProviderCapability.FAVORITE,
-        ProviderCapability.TEXT_SEARCH
+        ProviderCapability.TEXT_SEARCH,
+        ProviderCapability.TRASH,
+        ProviderCapability.ARCHIVE
     )
 
     override fun disconnect() {
@@ -408,11 +410,47 @@ class PhotoPrismProvider @Inject constructor(
     }
 
     override fun getRemoteTrashed(): Flow<Resource<List<CloudMediaEntity>>> = flow {
-        emit(Resource.Success(emptyList()))
+        try {
+            val response = requireApi().getPhotos(
+                count = 1000,
+                offset = 0,
+                archived = true
+            )
+            if (response.isSuccessful) {
+                captureTokensFromHeaders(response.headers())
+                // PhotoPrism soft-delete uses deleted_at; list via archived=true and force trashed.
+                val entities = mapPhotos(response.body().orEmpty()).map { it.copy(trashed = true) }
+                cloudMediaDao.insertAll(entities)
+                emit(Resource.Success(entities))
+            } else {
+                emit(Resource.Error("Failed to fetch trashed: ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emit(Resource.Error(e.message ?: "Unknown error"))
+        }
     }
 
     override fun getRemoteArchived(): Flow<Resource<List<CloudMediaEntity>>> = flow {
-        emit(Resource.Success(emptyList()))
+        try {
+            val response = requireApi().getPhotos(
+                count = 1000,
+                offset = 0,
+                private = true
+            )
+            if (response.isSuccessful) {
+                captureTokensFromHeaders(response.headers())
+                // Private flag maps to archived in toCloudMediaEntity.
+                emit(Resource.Success(mapPhotos(response.body().orEmpty())))
+            } else {
+                emit(Resource.Error("Failed to fetch archived: ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emit(Resource.Error(e.message ?: "Unknown error"))
+        }
     }
 
     // === Albums ===
@@ -518,23 +556,62 @@ class PhotoPrismProvider @Inject constructor(
         }
     }
 
-    override suspend fun toggleArchive(remoteId: String, archived: Boolean): Result<Unit> =
-        Result.failure(UnsupportedOperationException("PhotoPrism archive/private is not in MVP"))
+    override suspend fun toggleArchive(remoteId: String, archived: Boolean): Result<Unit> {
+        return try {
+            // PhotoPrism batch/private toggles the flag; skip when already at desired state.
+            val current = cloudMediaDao.getByRemoteId(remoteId, ProviderType.PHOTOPRISM)
+            if (current != null && current.archived == archived) {
+                return Result.success(Unit)
+            }
+            val response = requireApi().batchPrivatePhotos(mapOf("photos" to listOf(remoteId)))
+            if (response.isSuccessful) {
+                cloudMediaDao.updateArchived(remoteId, ProviderType.PHOTOPRISM, archived)
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to toggle private: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
-    override suspend fun trashAsset(remoteId: String): Result<Unit> =
-        Result.failure(UnsupportedOperationException("PhotoPrism trash is not in MVP"))
+    override suspend fun trashAsset(remoteId: String): Result<Unit> {
+        return try {
+            val response = requireApi().batchArchivePhotos(mapOf("photos" to listOf(remoteId)))
+            if (response.isSuccessful) {
+                cloudMediaDao.updateTrashed(remoteId, ProviderType.PHOTOPRISM, true)
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to trash asset: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
-    override suspend fun restoreAsset(remoteId: String): Result<Unit> =
-        Result.failure(UnsupportedOperationException("PhotoPrism trash is not in MVP"))
+    override suspend fun restoreAsset(remoteId: String): Result<Unit> {
+        return try {
+            val response = requireApi().batchRestorePhotos(mapOf("photos" to listOf(remoteId)))
+            if (response.isSuccessful) {
+                cloudMediaDao.updateTrashed(remoteId, ProviderType.PHOTOPRISM, false)
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to restore asset: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
+    // Hard delete / empty trash intentionally unsupported for PhotoPrism.
     override suspend fun deleteAsset(remoteId: String): Result<Unit> =
-        Result.failure(UnsupportedOperationException("PhotoPrism delete is not in MVP"))
+        Result.failure(UnsupportedOperationException("PhotoPrism permanent delete is not supported"))
 
     override suspend fun emptyTrash(): Result<Unit> =
-        Result.failure(UnsupportedOperationException("PhotoPrism trash is not in MVP"))
+        Result.failure(UnsupportedOperationException("PhotoPrism empty trash is not supported"))
 
     override suspend fun restoreAllTrash(): Result<Unit> =
-        Result.failure(UnsupportedOperationException("PhotoPrism trash is not in MVP"))
+        Result.failure(UnsupportedOperationException("PhotoPrism restore-all trash is not supported"))
 
     override suspend fun search(query: String): Result<List<CloudMediaEntity>> {
         return try {

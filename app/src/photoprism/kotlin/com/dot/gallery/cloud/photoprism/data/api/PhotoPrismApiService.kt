@@ -49,7 +49,9 @@ interface PhotoPrismApiService {
         @Query("order") order: String = "newest",
         @Query("q") query: String? = null,
         @Query("s") albumUid: String? = null,
-        @Query("favorite") favorite: Boolean? = null
+        @Query("favorite") favorite: Boolean? = null,
+        @Query("archived") archived: Boolean? = null,
+        @Query("private") private: Boolean? = null
     ): Response<List<PhotoPrismPhotoDto>>
 
     @GET("api/v1/albums")
@@ -72,4 +74,22 @@ interface PhotoPrismApiService {
 
     @DELETE("api/v1/photos/{uid}/like")
     suspend fun unlikePhoto(@Path("uid") uid: String): Response<Unit>
+
+    /** Soft-delete photos (sets deleted_at). Recoverable via [batchRestorePhotos]. */
+    @POST("api/v1/batch/photos/archive")
+    suspend fun batchArchivePhotos(
+        @Body body: Map<String, @JvmSuppressWildcards Any>
+    ): Response<Unit>
+
+    /** Restore soft-deleted photos. */
+    @POST("api/v1/batch/photos/restore")
+    suspend fun batchRestorePhotos(
+        @Body body: Map<String, @JvmSuppressWildcards Any>
+    ): Response<Unit>
+
+    /** Toggle the Private flag on photos (not an absolute set). */
+    @POST("api/v1/batch/photos/private")
+    suspend fun batchPrivatePhotos(
+        @Body body: Map<String, @JvmSuppressWildcards Any>
+    ): Response<Unit>
 }

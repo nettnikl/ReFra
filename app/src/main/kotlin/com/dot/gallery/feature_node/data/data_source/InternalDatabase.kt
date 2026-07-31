@@ -96,7 +96,7 @@ import com.dot.gallery.feature_node.domain.util.Converters
         AlbumSection::class,
         AlbumSectionMember::class
     ],
-    version = 40,
+    version = 41,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
@@ -142,6 +142,7 @@ import com.dot.gallery.feature_node.domain.util.Converters
         // (global per-album delete-local table)
         AutoMigration(from = 38, to = 39), // cloud_offline_pin (accounts marked available offline)
         AutoMigration(from = 39, to = 40), // people.hidden (on-device Person grouping)
+        AutoMigration(from = 40, to = 41), // cloud_server_config.encryptedAccessToken
     ]
 )
 @TypeConverters(Converters::class, CloudConverters::class)

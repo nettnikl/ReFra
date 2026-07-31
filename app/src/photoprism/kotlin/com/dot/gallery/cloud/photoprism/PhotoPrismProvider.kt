@@ -75,12 +75,16 @@ class PhotoPrismProvider @Inject constructor(
     )
 
     override fun disconnect() {
+        val configId = currentConfig?.id
         _connectionState.value = ConnectionState.DISCONNECTED
         currentConfig = null
         apiService = null
         authInterceptor.clear()
         hashByRemoteId.clear()
         baseUrl = ""
+        // Caller (initializer / accounts VM) clears encryptedAccessToken from Room when
+        // disconnecting an account; interceptor tokens are always wiped here.
+        printDebug("PhotoPrismProvider: Disconnected${configId?.let { " #$it" }.orEmpty()}")
     }
 
     override fun configure(config: CloudServerConfig) {
@@ -89,6 +93,20 @@ class PhotoPrismProvider @Inject constructor(
         authInterceptor.baseUrl = baseUrl
         authInterceptor.username = config.username
         authInterceptor.password = config.password
+        // Restore persisted session/OIDC token (or long-lived apiKey) before authenticate().
+        val restored = config.accessToken?.takeIf { it.isNotBlank() }
+            ?: config.apiKey?.takeIf { it.isNotBlank() }
+        authInterceptor.accessToken = restored
+        if (!config.accessToken.isNullOrBlank() && config.apiKey.isNullOrBlank()) {
+            // Token-only / OIDC: renew only possible if password is also present.
+            authInterceptor.authMode = if (!config.password.isNullOrBlank()) {
+                PhotoPrismAuthMode.SESSION
+            } else {
+                PhotoPrismAuthMode.STATIC_TOKEN
+            }
+        } else if (!config.apiKey.isNullOrBlank()) {
+            authInterceptor.authMode = PhotoPrismAuthMode.STATIC_TOKEN
+        }
         apiService = createApiService(baseUrl)
         printDebug("PhotoPrismProvider: Configured with server ${config.serverUrl}")
     }
@@ -183,8 +201,13 @@ class PhotoPrismProvider @Inject constructor(
     override suspend fun testConnection(config: CloudServerConfig): Result<CloudServerInfo> {
         return try {
             val tempUrl = config.serverUrl.trimEnd('/')
-            val auth = obtainAccess(tempUrl, config.apiKey, config.username, config.password)
-                .getOrElse { return Result.failure(it) }
+            val auth = obtainAccess(
+                tempUrl,
+                accessToken = config.accessToken,
+                apiKey = config.apiKey,
+                username = config.username,
+                password = config.password
+            ).getOrElse { return Result.failure(it) }
             val tempApi = createIsolatedApiService(tempUrl, auth.accessToken)
             val configResp = tempApi.getConfig()
             if (configResp.isSuccessful) {
@@ -206,14 +229,20 @@ class PhotoPrismProvider @Inject constructor(
 
     override suspend fun authenticate(config: CloudServerConfig): Result<CloudAuthToken> {
         return try {
-            val auth = obtainAccess(baseUrl, config.apiKey, config.username, config.password)
-                .getOrElse {
+            val auth = obtainAccess(
+                baseUrl,
+                accessToken = config.accessToken,
+                apiKey = config.apiKey,
+                username = config.username,
+                password = config.password
+            ).getOrElse {
                     _connectionState.value = ConnectionState.ERROR
                     return Result.failure(it)
                 }
             authInterceptor.accessToken = auth.accessToken
             authInterceptor.authMode = auth.mode
             authInterceptor.username = config.username
+            // Token/OIDC-only: leave password null when none was provided.
             authInterceptor.password = config.password
             applyConfigTokens(auth.previewToken, auth.downloadToken)
 
@@ -264,10 +293,35 @@ class PhotoPrismProvider @Inject constructor(
 
     private suspend fun obtainAccess(
         serverUrl: String,
+        accessToken: String?,
         apiKey: String?,
         username: String?,
         password: String?
     ): Result<ObtainedAuth> {
+        // Prefer a persisted session/OIDC token so reconnect works without a password.
+        if (!accessToken.isNullOrBlank()) {
+            val tempApi = createIsolatedApiService(serverUrl, accessToken)
+            val cfg = tempApi.getConfig()
+            if (cfg.isSuccessful) {
+                val mode = when {
+                    !password.isNullOrBlank() && !username.isNullOrBlank() ->
+                        PhotoPrismAuthMode.SESSION
+                    else -> PhotoPrismAuthMode.STATIC_TOKEN
+                }
+                return Result.success(
+                    ObtainedAuth(
+                        accessToken = accessToken,
+                        mode = mode,
+                        previewToken = cfg.body()?.previewToken,
+                        downloadToken = cfg.body()?.downloadToken
+                    )
+                )
+            }
+            printDebug(
+                "PhotoPrismProvider: persisted accessToken rejected (${cfg.code()}); falling back"
+            )
+        }
+
         if (!apiKey.isNullOrBlank()) {
             val tempApi = createIsolatedApiService(serverUrl, apiKey)
             val cfg = tempApi.getConfig()

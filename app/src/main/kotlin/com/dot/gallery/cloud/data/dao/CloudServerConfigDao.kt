@@ -46,4 +46,7 @@ interface CloudServerConfigDao {
 
     @Query("UPDATE cloud_server_config SET lastConnected = :timestamp WHERE id = :id")
     suspend fun updateLastConnected(id: Long, timestamp: Long)
+
+    @Query("UPDATE cloud_server_config SET encryptedAccessToken = :token WHERE id = :id")
+    suspend fun updateEncryptedAccessToken(id: Long, token: String?)
 }

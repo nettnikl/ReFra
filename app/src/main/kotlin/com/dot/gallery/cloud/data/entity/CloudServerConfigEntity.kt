@@ -22,6 +22,9 @@ data class CloudServerConfigEntity(
     val providerType: ProviderType,
     val serverUrl: String,
     val apiKey: String? = null,
+    /** AES-GCM ciphertext of a session/OIDC access token; same format as [encryptedPassword]. */
+    @ColumnInfo(defaultValue = "NULL")
+    val encryptedAccessToken: String? = null,
     val username: String? = null,
     val encryptedPassword: String? = null,
     val displayName: String = "",
@@ -62,6 +65,7 @@ data class CloudServerConfigEntity(
         providerType = providerType,
         serverUrl = serverUrl,
         apiKey = apiKey,
+        accessToken = encryptedAccessToken,
         username = username,
         password = encryptedPassword,
         displayName = displayName,
@@ -93,12 +97,17 @@ data class CloudServerConfigEntity(
     )
 
     companion object {
-        fun fromCloudServerConfig(config: CloudServerConfig, encryptedPwd: String? = null) =
+        fun fromCloudServerConfig(
+            config: CloudServerConfig,
+            encryptedPwd: String? = null,
+            encryptedAccessToken: String? = null
+        ) =
             CloudServerConfigEntity(
                 id = config.id,
                 providerType = config.providerType,
                 serverUrl = config.serverUrl,
                 apiKey = config.apiKey,
+                encryptedAccessToken = encryptedAccessToken,
                 username = config.username,
                 encryptedPassword = encryptedPwd,
                 displayName = config.displayName,

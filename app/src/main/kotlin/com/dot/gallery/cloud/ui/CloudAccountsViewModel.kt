@@ -12,7 +12,6 @@ import com.dot.gallery.cloud.core.CloudServerConfig
 import com.dot.gallery.cloud.core.CloudStorageInfo
 import com.dot.gallery.cloud.core.ConnectionState
 import com.dot.gallery.cloud.core.CredentialEncryptor
-import com.dot.gallery.cloud.core.Disconnectable
 import com.dot.gallery.cloud.core.ProviderCapability
 import com.dot.gallery.cloud.core.ProviderRegistry
 import com.dot.gallery.cloud.core.ProviderType
@@ -301,8 +300,12 @@ class CloudAccountsViewModel @Inject constructor(
                 val encryptedApiKey = state.apiKey.ifBlank { null }?.let {
                     credentialEncryptor.encrypt(it)
                 }
-                val encryptedPassword = state.password.ifBlank { null }?.let {
-                    credentialEncryptor.encrypt(it)
+                // Token / app-password auth: never persist a user password alongside it.
+                // Username/password (or OAuth client) session auth may store the password for renew.
+                val encryptedPassword = when {
+                    state.apiKey.isNotBlank() -> null
+                    state.password.isBlank() -> null
+                    else -> credentialEncryptor.encrypt(state.password)
                 }
                 val entity = CloudServerConfigEntity(
                     id = state.savedConfigId ?: 0L,
@@ -357,12 +360,9 @@ class CloudAccountsViewModel @Inject constructor(
             cloudMediaDao.deleteByServerConfig(configId)
             uploadPrefDao.deleteByConfig(configId)
             albumSyncDao.deleteByServer(configId)
+            // Clear session token + disconnect provider before removing the row.
+            providerInitializer.disconnectAccount(configId)
             configDao.deleteById(configId)
-            val provider = registry.getByConfigId(configId)
-            if (provider is Disconnectable) {
-                provider.disconnect()
-            }
-            registry.unregister(configId)
             // If this was the last account of its type, mark the type disconnected so the
             // media distributor drops its cloud albums. (Cached media rows were already
             // removed above via cloudMediaDao.deleteByServerConfig, which the timeline

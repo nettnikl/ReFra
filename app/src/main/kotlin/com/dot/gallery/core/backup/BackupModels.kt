@@ -74,6 +74,7 @@ data class CloudConfigEntry(
     val apiKey: String? = null,
     val username: String? = null,
     val encryptedPassword: String? = null,
+    val encryptedAccessToken: String? = null,
     val displayName: String = "",
     val isActive: Boolean = true,
     val lastConnected: Long = 0L,

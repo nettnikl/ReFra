@@ -128,16 +128,12 @@ class CloudProviderInitializer @Inject constructor(
         val provider = (registry.getByConfigId(configId) as? RemoteMediaProvider)
             ?: (factoriesByType[entity.providerType]?.create() as? RemoteMediaProvider ?: return)
         try {
-            val config = entity.toCloudServerConfig().let { cfg ->
-                cfg.copy(
-                    apiKey = cfg.apiKey?.let { credentialEncryptor.decrypt(it) },
-                    password = cfg.password?.let { credentialEncryptor.decrypt(it) }
-                )
-            }
+            val config = entity.toDecryptedConfig()
             val resolved = urlResolver.resolve(config)
             lastResolvedUrl[entity.id] = resolved.serverUrl
             provider.configure(resolved)
-            provider.authenticate(resolved)
+            val auth = provider.authenticate(resolved)
+            persistAccessToken(entity.id, resolved.apiKey, auth.getOrNull()?.accessToken)
             registry.register(entity.id, provider)
             cloudRepository.notifyProviderConnected(entity.providerType, ConnectionState.CONNECTED)
             // Populate the cache immediately so a freshly added account's media/albums appear
@@ -164,16 +160,12 @@ class CloudProviderInitializer @Inject constructor(
             val factory = factoriesByType[entity.providerType] ?: continue
             val provider = factory.create() as? RemoteMediaProvider ?: continue
             try {
-                val config = entity.toCloudServerConfig().let { cfg ->
-                    cfg.copy(
-                        apiKey = cfg.apiKey?.let { credentialEncryptor.decrypt(it) },
-                        password = cfg.password?.let { credentialEncryptor.decrypt(it) }
-                    )
-                }
+                val config = entity.toDecryptedConfig()
                 val resolved = urlResolver.resolve(config)
                 lastResolvedUrl[entity.id] = resolved.serverUrl
                 provider.configure(resolved)
-                provider.authenticate(resolved)
+                val auth = provider.authenticate(resolved)
+                persistAccessToken(entity.id, resolved.apiKey, auth.getOrNull()?.accessToken)
                 registry.register(entity.id, provider)
                 // Notify CONNECTED immediately so cached data from Room is displayed right away
                 cloudRepository.notifyProviderConnected(entity.providerType, ConnectionState.CONNECTED)
@@ -202,17 +194,13 @@ class CloudProviderInitializer @Inject constructor(
         if (!entity.isActive) return
         val provider = registry.getByConfigId(configId) as? RemoteMediaProvider ?: return
         try {
-            val config = entity.toCloudServerConfig().let { cfg ->
-                cfg.copy(
-                    apiKey = cfg.apiKey?.let { credentialEncryptor.decrypt(it) },
-                    password = cfg.password?.let { credentialEncryptor.decrypt(it) }
-                )
-            }
+            val config = entity.toDecryptedConfig()
             val resolved = urlResolver.resolve(config)
             if (lastResolvedUrl[entity.id] == resolved.serverUrl) return
             lastResolvedUrl[entity.id] = resolved.serverUrl
             provider.configure(resolved)
-            provider.authenticate(resolved)
+            val auth = provider.authenticate(resolved)
+            persistAccessToken(entity.id, resolved.apiKey, auth.getOrNull()?.accessToken)
             cloudRepository.notifyProviderConnected(entity.providerType, ConnectionState.CONNECTED)
             printDebug("CloudProviderInitializer: Reconfigured account #${entity.id} -> ${resolved.serverUrl}")
             // Re-pull data from the new URL so the timeline/albums reflect the switched host.
@@ -233,23 +221,57 @@ class CloudProviderInitializer @Inject constructor(
         for (entity in activeConfigs) {
             val provider = registry.getByConfigId(entity.id) as? RemoteMediaProvider ?: continue
             try {
-                val config = entity.toCloudServerConfig().let { cfg ->
-                    cfg.copy(
-                        apiKey = cfg.apiKey?.let { credentialEncryptor.decrypt(it) },
-                        password = cfg.password?.let { credentialEncryptor.decrypt(it) }
-                    )
-                }
+                val config = entity.toDecryptedConfig()
                 val resolved = urlResolver.resolve(config)
                 if (lastResolvedUrl[entity.id] == resolved.serverUrl) continue
                 lastResolvedUrl[entity.id] = resolved.serverUrl
                 provider.configure(resolved)
-                provider.authenticate(resolved)
+                val auth = provider.authenticate(resolved)
+                persistAccessToken(entity.id, resolved.apiKey, auth.getOrNull()?.accessToken)
                 cloudRepository.notifyProviderConnected(entity.providerType, ConnectionState.CONNECTED)
                 printDebug("CloudProviderInitializer: Reconfigured ${entity.providerType} #${entity.id} -> ${resolved.serverUrl}")
             } catch (e: Exception) {
                 printDebug("CloudProviderInitializer: Reconfigure failed for ${entity.providerType} #${entity.id}: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Clears the in-memory provider and the encrypted session/OIDC token for [configId].
+     * Long-lived [CloudServerConfigEntity.apiKey] values are left intact so the account can
+     * reconnect with an app password without re-entering it.
+     */
+    suspend fun disconnectAccount(configId: Long) {
+        val entity = configDao.getById(configId)
+        val provider = registry.getByConfigId(configId)
+        if (provider is com.dot.gallery.cloud.core.Disconnectable) {
+            provider.disconnect()
+        }
+        registry.unregister(configId)
+        lastResolvedUrl.remove(configId)
+        configDao.updateEncryptedAccessToken(configId, null)
+        if (entity != null && registry.getAllForType(entity.providerType).isEmpty()) {
+            cloudRepository.disconnect(entity.providerType)
+        }
+    }
+
+    private fun com.dot.gallery.cloud.data.entity.CloudServerConfigEntity.toDecryptedConfig() =
+        toCloudServerConfig().let { cfg ->
+            cfg.copy(
+                apiKey = cfg.apiKey?.let { credentialEncryptor.decrypt(it) },
+                accessToken = cfg.accessToken?.let { credentialEncryptor.decrypt(it) },
+                password = cfg.password?.let { credentialEncryptor.decrypt(it) }
+            )
+        }
+
+    /**
+     * Persists session/OIDC tokens obtained at login. Skips when the token is the same as the
+     * long-lived app password already stored in [apiKey].
+     */
+    private suspend fun persistAccessToken(configId: Long, apiKey: String?, accessToken: String?) {
+        if (accessToken.isNullOrBlank()) return
+        if (!apiKey.isNullOrBlank() && accessToken == apiKey) return
+        configDao.updateEncryptedAccessToken(configId, credentialEncryptor.encrypt(accessToken))
     }
 
     companion object {

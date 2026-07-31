@@ -198,6 +198,61 @@ class PhotoPrismProviderMockServerTest {
     }
 
     @Test
+    fun authenticateWithPersistedAccessTokenWithoutPassword() = runBlocking {
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "version": "1", "name": "PP", "previewToken": "pt", "downloadToken": "dt" }""")
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5,
+            providerType = ProviderType.PHOTOPRISM,
+            serverUrl = baseUrl(),
+            accessToken = "OIDC-SESS",
+            username = "oidc-user"
+            // no password — token/OIDC-only reconnect
+        )
+        provider.configure(config)
+
+        val result = provider.authenticate(config)
+
+        assertTrue("token-only auth should succeed: ${result.exceptionOrNull()}", result.isSuccess)
+        assertEquals("OIDC-SESS", result.getOrNull()?.accessToken)
+        assertEquals(ConnectionState.CONNECTED, provider.connectionState.value)
+        val requests = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }.toList()
+        assertTrue(
+            requests.any {
+                it.getHeader("Authorization") == "Bearer OIDC-SESS" ||
+                    it.getHeader("X-Auth-Token") == "OIDC-SESS"
+            }
+        )
+    }
+
+    @Test
+    fun configureRestoresAccessTokenAndDisconnectClearsIt() = runBlocking {
+        val interceptor = PhotoPrismAuthInterceptor()
+        val local = PhotoPrismProvider(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            interceptor,
+            dao
+        )
+        val config = CloudServerConfig(
+            id = 6,
+            providerType = ProviderType.PHOTOPRISM,
+            serverUrl = baseUrl(),
+            accessToken = "PERSISTED"
+        )
+        local.configure(config)
+        assertEquals("PERSISTED", interceptor.accessToken)
+
+        local.disconnect()
+        assertEquals(null, interceptor.accessToken)
+        assertEquals(ConnectionState.DISCONNECTED, local.connectionState.value)
+    }
+
+    @Test
     fun fetchAssetsAndAlbums() = runBlocking {
         server.dispatcher = dispatcher { req ->
             when {

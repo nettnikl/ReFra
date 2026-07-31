@@ -75,6 +75,12 @@ data class CloudServerConfig(
     val providerType: ProviderType,
     val serverUrl: String,
     val apiKey: String? = null,
+    /**
+     * Session / OIDC access token (plaintext at runtime). Persisted encrypted as
+     * [com.dot.gallery.cloud.data.entity.CloudServerConfigEntity.encryptedAccessToken]
+     * so reconnect after restart does not require storing a user password for token auth.
+     */
+    val accessToken: String? = null,
     val username: String? = null,
     val password: String? = null,
     val displayName: String = "",

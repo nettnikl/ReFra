@@ -318,8 +318,11 @@ class CloudAccountsViewModel @Inject constructor(
                 val encryptedApiKey = state.apiKey.ifBlank { null }?.let {
                     credentialEncryptor.encrypt(it)
                 }
-                val encryptedPassword = state.password.ifBlank { null }?.let {
-                    credentialEncryptor.encrypt(it)
+                // Browser / token auth: never persist a user password alongside an apiKey.
+                val encryptedPassword = when {
+                    state.apiKey.isNotBlank() -> null
+                    state.password.isBlank() -> null
+                    else -> credentialEncryptor.encrypt(state.password)
                 }
                 val entity = CloudServerConfigEntity(
                     id = state.savedConfigId ?: 0L,

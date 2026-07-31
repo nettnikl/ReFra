@@ -40,11 +40,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * In-app WebView that completes PhotoPrism login (including Authentik OIDC when PP is the RP).
  *
- * After PhotoPrism's OIDC callback writes `session.token` into namespaced Web storage, this
- * activity reads the token and returns it as [EXTRA_ACCESS_TOKEN]. Also accepts the deep link
- * `refragallery://photoprism/callback?token=…`.
+ * After PhotoPrism's OIDC callback (`auth.gohtml`) writes namespaced `session.token` into
+ * Web storage, this activity reads the token, validates it against `/api/v1/config`, and
+ * returns it as [EXTRA_ACCESS_TOKEN]. Also accepts the deep link
+ * `refragallery://photoprism/callback?token=…` (validated when [EXTRA_SERVER_URL] is known).
  *
- * No username/password is stored — only the captured access token (use as apiKey / STATIC_TOKEN).
+ * No username/password is stored — only the captured access token (persisted as encrypted apiKey).
  */
 class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
 
@@ -52,6 +53,7 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var serverUrl: String
     private val done = AtomicBoolean(false)
+    private val bridging = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private val http = OkHttpClient.Builder()
@@ -70,14 +72,21 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)?.trim().orEmpty()
+
         // Deep-link entry: refragallery://photoprism/callback?token=
         val fromIntent = PhotoPrismSessionTokenExtractor.parseCallbackToken(intent?.data)
         if (!fromIntent.isNullOrBlank()) {
-            finishWithToken(fromIntent)
-            return
+            if (serverUrl.isBlank()) {
+                // Cold-start via deep link alone cannot validate or return to the add-server flow.
+                setResult(Activity.RESULT_CANCELED)
+                finish()
+                return
+            }
+            validateAndFinish(fromIntent)
+            // Keep going only if validation is async; UI still needed if validation fails.
         }
 
-        serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)?.trim().orEmpty()
         if (serverUrl.isBlank()) {
             setResult(Activity.RESULT_CANCELED)
             finish()
@@ -146,7 +155,7 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
             text = getString(R.string.cloud_photoprism_browser_confirm)
             setPadding(48, 36, 48, 48)
             textSize = 14f
-            setOnClickListener { tryExtractFromStorage(forceValidate = true) }
+            setOnClickListener { tryExtractFromStorage(forceBridge = true) }
         }
         root.addView(confirm)
 
@@ -169,7 +178,7 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        PhotoPrismSessionTokenExtractor.parseCallbackToken(intent.data)?.let { finishWithToken(it) }
+        PhotoPrismSessionTokenExtractor.parseCallbackToken(intent.data)?.let { validateAndFinish(it) }
     }
 
     override fun onDestroy() {
@@ -201,7 +210,7 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
                 val uri = request?.url ?: return false
                 val token = PhotoPrismSessionTokenExtractor.parseCallbackToken(uri)
                 if (token != null) {
-                    finishWithToken(token)
+                    validateAndFinish(token)
                     return true
                 }
                 if (PhotoPrismSessionTokenExtractor.isPhotoPrismCallback(uri)) {
@@ -216,7 +225,7 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
                 val uri = url?.let(Uri::parse) ?: return false
                 val token = PhotoPrismSessionTokenExtractor.parseCallbackToken(uri)
                 if (token != null) {
-                    finishWithToken(token)
+                    validateAndFinish(token)
                     return true
                 }
                 return false
@@ -225,14 +234,18 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 progress.isVisible = false
                 tryExtractFromStorage()
+                if (url.isNullOrBlank()) return
                 // After OIDC HTML writes storage it redirects quickly — poll harder briefly.
-                if (url != null && (
-                        url.contains("/api/v1/oauth/oidc", ignoreCase = true) ||
-                            url.contains("oidc", ignoreCase = true)
-                        )
+                if (url.contains("/api/v1/oauth/oidc", ignoreCase = true) ||
+                    url.contains("/api/v1/oidc", ignoreCase = true) ||
+                    url.contains("oidc", ignoreCase = true)
                 ) {
                     handler.postDelayed({ tryExtractFromStorage() }, 400)
                     handler.postDelayed({ tryExtractFromStorage() }, 1200)
+                }
+                // Once back on the PhotoPrism app (post-login), also try the cookie session bridge.
+                if (isSameOrigin(url) && looksPostLogin(url)) {
+                    handler.postDelayed({ tryExtractFromStorage(forceBridge = true) }, 800)
                 }
             }
 
@@ -243,22 +256,36 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
         return view
     }
 
-    private fun tryExtractFromStorage(forceValidate: Boolean = false) {
+    private fun isSameOrigin(url: String): Boolean {
+        val base = runCatching { Uri.parse(serverUrl) }.getOrNull() ?: return false
+        val page = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        return base.host.equals(page.host, ignoreCase = true)
+    }
+
+    private fun looksPostLogin(url: String): Boolean {
+        val path = runCatching { Uri.parse(url).path }.getOrNull().orEmpty().lowercase()
+        if (path.contains("/library/login") || path.contains("/auth") || path.contains("oidc")) {
+            return false
+        }
+        return path.contains("/library") || path == "/" || path.isEmpty()
+    }
+
+    private fun tryExtractFromStorage(forceBridge: Boolean = false) {
         if (done.get() || !::webView.isInitialized) return
         webView.evaluateJavascript(PhotoPrismSessionTokenExtractor.EXTRACT_TOKEN_JS) { raw ->
             val token = PhotoPrismSessionTokenExtractor.decodeEvaluateJavascriptResult(raw)
             if (!token.isNullOrBlank()) {
                 validateAndFinish(token)
-            } else if (forceValidate) {
-                // Cookie / session bridge: GET /api/v1/session with WebView cookies.
+            } else if (forceBridge) {
                 bridgeSessionViaCookies()
             }
         }
     }
 
     private fun bridgeSessionViaCookies() {
-        if (done.get()) return
+        if (done.get() || !bridging.compareAndSet(false, true)) return
         val base = serverUrl.trimEnd('/')
+        CookieManager.getInstance().flush()
         val cookie = CookieManager.getInstance().getCookie(base).orEmpty()
         io.execute {
             try {
@@ -280,11 +307,14 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
                         .ifBlank { json.optString("id") }
                         .takeIf { it.isNotBlank() }
                     if (token != null) {
+                        // Cookie bridge already returned a live session — accept directly.
                         runOnUiThread { finishWithToken(token) }
                     }
                 }
             } catch (e: Exception) {
                 printDebug("PhotoPrismBrowserLogin: session bridge error ${e.message}")
+            } finally {
+                bridging.set(false)
             }
         }
     }
@@ -315,24 +345,42 @@ class PhotoPrismBrowserLoginActivity : AppCompatActivity() {
     private fun finishWithToken(token: String) {
         if (!done.compareAndSet(false, true)) return
         handler.removeCallbacks(pollRunnable)
-        // Drop WebView auth state so the token is not left in the shared CookieManager longer
-        // than needed. The app persists the bearer token encrypted as apiKey.
-        runCatching {
-            CookieManager.getInstance().removeAllCookies(null)
-            CookieManager.getInstance().flush()
-            if (::webView.isInitialized) {
-                webView.clearCache(true)
-                webView.evaluateJavascript(
-                    "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){}})();",
-                    null
-                )
-            }
-        }
+        // Drop WebView auth state for this server so cookies/storage are not left behind.
+        // The app persists the bearer token encrypted as apiKey.
+        runCatching { clearWebAuthState() }
         setResult(
             Activity.RESULT_OK,
             Intent().putExtra(EXTRA_ACCESS_TOKEN, token)
         )
         finish()
+    }
+
+    private fun clearWebAuthState() {
+        val base = serverUrl.trimEnd('/')
+        val hostUri = runCatching { Uri.parse(base) }.getOrNull()
+        val cm = CookieManager.getInstance()
+        if (hostUri?.host != null) {
+            val cookie = cm.getCookie(base).orEmpty()
+            if (cookie.isNotBlank()) {
+                cookie.split(';').forEach { part ->
+                    val name = part.substringBefore('=').trim()
+                    if (name.isNotEmpty()) {
+                        cm.setCookie(base, "$name=; Max-Age=0; Path=/")
+                        val secure = base.startsWith("https", ignoreCase = true)
+                        if (secure) {
+                            cm.setCookie(base, "$name=; Max-Age=0; Path=/; Secure")
+                        }
+                    }
+                }
+            }
+            cm.flush()
+        }
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript(
+                "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){}})();",
+                null
+            )
+        }
     }
 
     private fun cancelAndFinish() {

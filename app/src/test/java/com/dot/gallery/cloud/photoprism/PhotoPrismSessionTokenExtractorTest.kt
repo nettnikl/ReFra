@@ -51,6 +51,31 @@ class PhotoPrismSessionTokenExtractorTest {
     }
 
     @Test
+    fun parseCallbackToken_rejectsBlankToken() {
+        assertNull(
+            PhotoPrismSessionTokenExtractor.parseCallbackToken(
+                scheme = "refragallery",
+                host = "photoprism",
+                path = "/callback",
+                token = "  "
+            )
+        )
+    }
+
+    @Test
+    fun parseCallbackToken_allowsEmptyPath() {
+        assertEquals(
+            "tok",
+            PhotoPrismSessionTokenExtractor.parseCallbackToken(
+                scheme = "refragallery",
+                host = "photoprism",
+                path = null,
+                token = "tok"
+            )
+        )
+    }
+
+    @Test
     fun decodeEvaluateJavascriptResult_unwrapsJsonString() {
         assertEquals(
             "my-token",

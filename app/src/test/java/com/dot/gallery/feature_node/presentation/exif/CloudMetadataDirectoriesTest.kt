@@ -57,9 +57,35 @@ class CloudMetadataDirectoriesTest {
         assertEquals("f/2.8", exif["F-Number"])
         assertEquals("200", exif["ISO"])
 
+        val file = dirs.first { it.name == "File" }.tags.associate { it.name to it.description }
+        assertEquals("PhotoPrism", file["Provider"])
+        assertEquals("IMG_001.jpg", file["File Name"])
+
         val gps = dirs.first { it.name == "GPS" }.tags.associate { it.name to it.description }
+        assertEquals("48.137154", gps["Latitude"])
+        assertEquals("11.576124", gps["Longitude"])
         assertEquals("Munich", gps["City"])
         assertEquals("Germany", gps["Country"])
+    }
+
+    @Test
+    fun buildsVideoDirectoryFromEntity() {
+        val entity = CloudMediaEntity(
+            remoteId = "vid",
+            providerType = ProviderType.PHOTOPRISM,
+            serverConfigId = 1L,
+            mimeType = "video/mp4",
+            width = 1920,
+            height = 1080,
+            duration = "0:01:05"
+        )
+        val dirs = buildCloudMetadataDirectories(entity, null)
+        assertTrue(dirs.any { it.name == "Video" })
+        assertTrue(dirs.none { it.name == "Image" })
+        val video = dirs.first { it.name == "Video" }.tags.associate { it.name to it.description }
+        assertEquals("1920 pixels", video["Video Width"])
+        assertEquals("1080 pixels", video["Video Height"])
+        assertEquals("0:01:05", video["Duration"])
     }
 
     @Test

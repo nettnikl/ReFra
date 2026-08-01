@@ -57,10 +57,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentDataType
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.autofill.contentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDataType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -357,15 +362,7 @@ private fun CredentialsStep(
     credentialValues: CredentialValues,
     viewModel: CloudAccountsViewModel
 ) {
-    AppTextField(
-        value = state.displayName,
-        onValueChange = viewModel::updateDisplayName,
-        label = { Text(stringResource(R.string.cloud_display_name)) },
-        placeholder = { Text(stringResource(R.string.cloud_display_name_hint)) },
-        modifier = frostedFieldModifier(),
-        containerColor = Color.Transparent,
-        singleLine = true
-    )
+    // Credentials before display name so password managers don't treat the label field as username.
     descriptor.credentialFields.forEach { field ->
         if (!field.visibleWhen(credentialValues)) return@forEach
         val value = when (field.kind) {
@@ -378,9 +375,20 @@ private fun CredentialsStep(
             CredentialFieldKind.USERNAME -> viewModel::updateUsername
             CredentialFieldKind.PASSWORD -> viewModel::updatePassword
         }
-        Spacer(Modifier.height(16.dp))
         CredentialTextField(field = field, value = value, onValueChange = onValueChange)
+        Spacer(Modifier.height(16.dp))
     }
+    AppTextField(
+        value = state.displayName,
+        onValueChange = viewModel::updateDisplayName,
+        label = { Text(stringResource(R.string.cloud_display_name)) },
+        placeholder = { Text(stringResource(R.string.cloud_display_name_hint)) },
+        modifier = frostedFieldModifier().semantics {
+            contentDataType = ContentDataType.None
+        },
+        containerColor = Color.Transparent,
+        singleLine = true
+    )
     Spacer(Modifier.height(16.dp))
     SetupButton(
         text = if (state.isTesting) stringResource(R.string.cloud_testing)
@@ -427,12 +435,19 @@ private fun CredentialTextField(
     onValueChange: (String) -> Unit
 ) {
     var revealed by remember { mutableStateOf(false) }
+    val autofillModifier = when (field.kind) {
+        CredentialFieldKind.USERNAME -> Modifier.contentType(ContentType.Username)
+        CredentialFieldKind.PASSWORD -> Modifier.contentType(ContentType.Password)
+        CredentialFieldKind.API_KEY -> Modifier.semantics {
+            contentDataType = ContentDataType.None
+        }
+    }
     AppTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(stringResource(field.labelRes)) },
         placeholder = field.hintRes?.let { { Text(stringResource(it)) } },
-        modifier = frostedFieldModifier(),
+        modifier = frostedFieldModifier().then(autofillModifier),
         containerColor = Color.Transparent,
         singleLine = true,
         visualTransformation = if (field.isSecret && !revealed) PasswordVisualTransformation()

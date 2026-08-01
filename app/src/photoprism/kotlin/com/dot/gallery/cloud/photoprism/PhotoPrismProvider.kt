@@ -419,25 +419,37 @@ class PhotoPrismProvider @Inject constructor(
 
     override fun getRemoteAlbums(): Flow<Resource<List<CloudAlbum>>> = flow {
         try {
-            val configId = currentConfig?.id ?: 0L
-            val response = requireApi().getAlbums()
-            if (response.isSuccessful) {
-                val albums = response.body()?.map { dto ->
-                    CloudAlbum(
-                        remoteId = dto.uid,
-                        providerType = ProviderType.PHOTOPRISM,
-                        serverConfigId = configId,
-                        name = dto.title,
-                        assetCount = dto.photoCount,
-                        isShared = dto.linkCount > 0,
-                        createdAt = PhotoPrismPhotoDto.parseIsoTimestamp(dto.createdAt ?: ""),
-                        updatedAt = PhotoPrismPhotoDto.parseIsoTimestamp(dto.updatedAt ?: "")
-                    )
-                } ?: emptyList()
-                emit(Resource.Success(albums))
-            } else {
-                emit(Resource.Error("Failed to fetch albums: ${response.code()}"))
+            val config = currentConfig
+            val configId = config?.id ?: 0L
+            val api = requireApi()
+            val albumResponse = api.getAlbums(type = "album")
+            if (!albumResponse.isSuccessful) {
+                emit(Resource.Error("Failed to fetch albums: ${albumResponse.code()}"))
+                return@flow
             }
+            val dtos = albumResponse.body().orEmpty().toMutableList()
+            if (config?.includeMonthAlbums == true) {
+                val monthResponse = api.getAlbums(type = "month")
+                if (monthResponse.isSuccessful) {
+                    dtos += monthResponse.body().orEmpty()
+                } else {
+                    emit(Resource.Error("Failed to fetch month albums: ${monthResponse.code()}"))
+                    return@flow
+                }
+            }
+            val albums = dtos.map { dto ->
+                CloudAlbum(
+                    remoteId = dto.uid,
+                    providerType = ProviderType.PHOTOPRISM,
+                    serverConfigId = configId,
+                    name = dto.title,
+                    assetCount = dto.photoCount,
+                    isShared = dto.linkCount > 0,
+                    createdAt = PhotoPrismPhotoDto.parseIsoTimestamp(dto.createdAt ?: ""),
+                    updatedAt = PhotoPrismPhotoDto.parseIsoTimestamp(dto.updatedAt ?: "")
+                )
+            }
+            emit(Resource.Success(albums))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

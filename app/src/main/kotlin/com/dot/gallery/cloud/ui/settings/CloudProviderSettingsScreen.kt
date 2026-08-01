@@ -193,6 +193,21 @@ fun CloudProviderSettingsScreen(
             )
         )
 
+        if (config.providerType == ProviderType.PHOTOPRISM) {
+            items.add(SettingsEntity.Header(title = context.getString(R.string.cloud_photoprism_albums_header)))
+            items.add(
+                SettingsEntity.SwitchPreference(
+                    title = context.getString(R.string.cloud_photoprism_include_month_albums),
+                    summary = context.getString(R.string.cloud_photoprism_include_month_albums_summary),
+                    isChecked = config.includeMonthAlbums,
+                    onCheck = { checked ->
+                        viewModel.updateConfigById(configId) { copy(includeMonthAlbums = checked) }
+                    },
+                    screenPosition = Position.Alone
+                )
+            )
+        }
+
         // Settings section
         items.add(SettingsEntity.Header(title = context.getString(R.string.cloud_settings_more_header)))
         items.add(

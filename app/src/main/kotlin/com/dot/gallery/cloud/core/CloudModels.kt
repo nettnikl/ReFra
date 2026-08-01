@@ -107,7 +107,9 @@ data class CloudServerConfig(
     val verboseLogging: Boolean = false,
     val syncRemoteDeletions: Boolean = false,
     val preferRemoteImages: Boolean = false,
-    val readOnlyMode: Boolean = false
+    val readOnlyMode: Boolean = false,
+    /** PhotoPrism: include automatic calendar month albums in the albums list. Default off. */
+    val includeMonthAlbums: Boolean = false
 )
 
 @Serializable

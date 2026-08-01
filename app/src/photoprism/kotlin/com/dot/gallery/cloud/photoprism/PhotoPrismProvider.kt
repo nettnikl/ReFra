@@ -558,9 +558,8 @@ class PhotoPrismProvider @Inject constructor(
         getThumbnailUrl(remoteId, size, hashByRemoteId[remoteId])
 
     override fun getThumbnailUrl(remoteId: String, size: ThumbnailSize, fileId: String?): String {
-        val hash = fileId?.takeIf { it.isNotBlank() }?.also { hashByRemoteId[remoteId] = it }
-            ?: hashByRemoteId[remoteId]
-            ?: return ""
+        // Grid / timeline always request ThumbnailSize.THUMBNAIL or PREVIEW (fit_720) — never original.
+        val hash = resolveFileHash(remoteId, fileId) ?: return ""
         val token = authInterceptor.previewToken ?: return ""
         val thumb = when (size) {
             ThumbnailSize.THUMBNAIL -> "tile_224"
@@ -569,10 +568,33 @@ class PhotoPrismProvider @Inject constructor(
         return "$baseUrl/api/v1/t/$hash/$token/$thumb"
     }
 
-    override fun getOriginalUrl(remoteId: String): String {
-        val hash = hashByRemoteId[remoteId] ?: return ""
+    override fun getOriginalUrl(remoteId: String): String =
+        getOriginalUrl(remoteId, fileId = null)
+
+    override fun getOriginalUrl(remoteId: String, fileId: String?): String {
+        val hash = resolveFileHash(remoteId, fileId) ?: return ""
         val token = authInterceptor.downloadToken ?: return ""
         return "$baseUrl/api/v1/dl/$hash?t=$token"
+    }
+
+    /**
+     * Resolve PhotoPrism file hash for download/thumb URLs:
+     * URI/param [fileId] → in-memory map → Room `fileId` (survives cold starts before prefetch).
+     */
+    private fun resolveFileHash(remoteId: String, fileId: String?): String? {
+        fileId?.takeIf { it.isNotBlank() }?.let {
+            hashByRemoteId[remoteId] = it
+            return it
+        }
+        hashByRemoteId[remoteId]?.takeIf { it.isNotBlank() }?.let { return it }
+        return try {
+            cloudMediaDao.getFileIdBlocking(remoteId, ProviderType.PHOTOPRISM)
+                ?.takeIf { it.isNotBlank() }
+                ?.also { hashByRemoteId[remoteId] = it }
+        } catch (e: Exception) {
+            printDebug("PhotoPrismProvider: Room hash lookup failed for $remoteId: ${e.message}")
+            null
+        }
     }
 
     override fun getAuthHeaders(): Map<String, String> = buildMap {

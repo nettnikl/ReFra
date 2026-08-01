@@ -68,7 +68,7 @@ class CloudGlideModelLoader : ModelLoader<Uri, InputStream> {
             else -> when (effectiveSize) {
                 "thumbnail" -> provider.getThumbnailUrl(remoteId, ThumbnailSize.THUMBNAIL, fileId)
                 "preview" -> provider.getThumbnailUrl(remoteId, ThumbnailSize.PREVIEW, fileId)
-                "original" -> provider.getOriginalUrl(remoteId)
+                "original" -> provider.getOriginalUrl(remoteId, fileId)
                 else -> provider.getThumbnailUrl(remoteId, ThumbnailSize.PREVIEW, fileId)
             }
         }

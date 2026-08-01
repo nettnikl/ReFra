@@ -6,19 +6,13 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -30,10 +24,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -54,10 +44,12 @@ import com.dot.gallery.feature_node.domain.model.MediaMetadataState
 import com.dot.gallery.feature_node.domain.model.MediaState
 import com.dot.gallery.feature_node.domain.model.isHeaderKey
 import com.dot.gallery.feature_node.domain.model.isIgnoredKey
+import com.dot.gallery.feature_node.domain.util.dominantCityForMediaIds
 import com.dot.gallery.feature_node.presentation.common.components.GridPinchZoomLayout
 import com.dot.gallery.feature_node.presentation.common.components.MediaGridView
 import com.dot.gallery.feature_node.presentation.common.components.MosaicMediaGrid
 import com.dot.gallery.feature_node.presentation.common.components.MosaicPinchZoomLayout
+import com.dot.gallery.feature_node.presentation.common.components.StickyDateHeader
 import com.dot.gallery.feature_node.presentation.common.components.StickyHeaderGrid
 import com.dot.gallery.feature_node.presentation.common.components.TimelineScroller
 import com.dot.gallery.feature_node.presentation.common.components.rememberGridPinchZoomState
@@ -197,28 +189,18 @@ fun TimelineMediaContent(
                 derivedStateOf { mediaState.value.media.isNotEmpty() && stickyHeaderItem != null }
             }
             AnimatedVisibility(visible = show, enter = enterAnimation, exit = exitAnimation) {
-                val text by rememberedDerivedState(stickyHeaderItem) { stickyHeaderItem ?: "" }
-                val darkTheme = isSystemInDarkTheme()
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.titleMedium.let { style ->
-                        if (!darkTheme) style.copy(
-                            shadow = Shadow(Color.White, Offset.Zero, 10f),
-                        ) else style
-                    },
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-                                    Color.Transparent,
-                                )
-                            )
-                        )
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 24.dp + searchBarPadding, bottom = 24.dp)
-                        .fillMaxWidth(),
+                val text by rememberedDerivedState(stickyHeaderItem) {
+                    stickyHeaderItem?.text.orEmpty()
+                }
+                val location by rememberedDerivedState(stickyHeaderItem, metadataState.value) {
+                    stickyHeaderItem?.mediaIds?.let { ids ->
+                        dominantCityForMediaIds(ids, metadataState.value.metadataMap)
+                    }
+                }
+                StickyDateHeader(
+                    date = text,
+                    location = location,
+                    topPadding = searchBarPadding,
                 )
             }
         },

@@ -210,6 +210,23 @@ class CloudAccountsViewModel @Inject constructor(
         _addServerState.value = _addServerState.value.copy(apiKey = key, testResult = null)
     }
 
+    /**
+     * Applies a PhotoPrism session / access token captured from browser (OIDC) login.
+     * Clears username/password so nothing password-based is persisted for this account.
+     */
+    fun applyBrowserSessionToken(token: String) {
+        val trimmed = token.trim()
+        if (trimmed.isBlank()) return
+        _addServerState.value = _addServerState.value.copy(
+            apiKey = trimmed,
+            username = "",
+            password = "",
+            testResult = null,
+            testSuccess = false,
+            error = null
+        )
+    }
+
     fun updateUsername(username: String) {
         _addServerState.value = _addServerState.value.copy(username = username, testResult = null)
     }
@@ -301,8 +318,11 @@ class CloudAccountsViewModel @Inject constructor(
                 val encryptedApiKey = state.apiKey.ifBlank { null }?.let {
                     credentialEncryptor.encrypt(it)
                 }
-                val encryptedPassword = state.password.ifBlank { null }?.let {
-                    credentialEncryptor.encrypt(it)
+                // Browser / token auth: never persist a user password alongside an apiKey.
+                val encryptedPassword = when {
+                    state.apiKey.isNotBlank() -> null
+                    state.password.isBlank() -> null
+                    else -> credentialEncryptor.encrypt(state.password)
                 }
                 val entity = CloudServerConfigEntity(
                     id = state.savedConfigId ?: 0L,

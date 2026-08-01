@@ -39,6 +39,16 @@ interface CloudMediaDao {
     @Query("SELECT * FROM cloud_media WHERE remoteId = :remoteId AND providerType = :providerType")
     suspend fun getByRemoteId(remoteId: String, providerType: ProviderType): CloudMediaEntity?
 
+    @Query(
+        "SELECT * FROM cloud_media WHERE remoteId = :remoteId AND providerType = :providerType " +
+            "AND serverConfigId = :serverConfigId LIMIT 1"
+    )
+    suspend fun getByRemoteIdAndConfig(
+        remoteId: String,
+        providerType: ProviderType,
+        serverConfigId: Long
+    ): CloudMediaEntity?
+
     @Query("SELECT * FROM cloud_media WHERE contentHash = :hash LIMIT 1")
     suspend fun getByContentHash(hash: String): CloudMediaEntity?
 

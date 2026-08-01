@@ -224,6 +224,8 @@ class CloudUploadWorker @AssistedInject constructor(
             val completedFiles = mutableListOf<String>()
             val failedFiles = mutableListOf<String>()
             val uploadedAssets = mutableListOf<UploadedAsset>()
+            // Providers that need a post-batch hook (e.g. PhotoPrism import).
+            val finalizeProviders = linkedSetOf<SyncCapableProvider>()
 
             // Notification behaviour is a per-account preference; honour it if ANY active
             // account opted in (the workers process every active account in one run).
@@ -273,6 +275,7 @@ class CloudUploadWorker @AssistedInject constructor(
                         .onSuccess { entity ->
                             completedItems++
                             completedFiles.add(task.media.label)
+                            finalizeProviders.add(task.provider)
                             if (entity.remoteId.isNotBlank()) {
                                 uploadedAssets.add(
                                     UploadedAsset(task.configId, task.albumLabel, entity.remoteId)
@@ -290,6 +293,16 @@ class CloudUploadWorker @AssistedInject constructor(
                     failedFiles.add(task.media.label)
                     printDebug("CloudUploadWorker: Exception uploading ${task.media.label}: ${e.message}")
                 }
+            }
+
+            // Post-batch hooks (PhotoPrism: process staged uploads + POST /api/v1/import/).
+            for (provider in finalizeProviders) {
+                provider.afterUploadBatch()
+                    .onFailure { e ->
+                        printDebug(
+                            "CloudUploadWorker: afterUploadBatch failed for ${provider.displayName}: ${e.message}"
+                        )
+                    }
             }
 
             setProgress(workDataOf(

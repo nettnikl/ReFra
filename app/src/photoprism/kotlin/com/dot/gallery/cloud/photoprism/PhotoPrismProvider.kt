@@ -6,6 +6,8 @@
 package com.dot.gallery.cloud.photoprism
 
 import android.content.Context
+import android.net.Uri
+import androidx.core.net.toUri
 import com.dot.gallery.cloud.core.CloudAlbum
 import com.dot.gallery.cloud.core.CloudAuthToken
 import com.dot.gallery.cloud.core.CloudServerConfig
@@ -15,17 +17,24 @@ import com.dot.gallery.cloud.core.ConnectionState
 import com.dot.gallery.cloud.core.Disconnectable
 import com.dot.gallery.cloud.core.ProviderCapability
 import com.dot.gallery.cloud.core.ProviderType
+import com.dot.gallery.cloud.core.SyncState
 import com.dot.gallery.cloud.core.ThumbnailSize
 import com.dot.gallery.cloud.core.capabilities.RemoteMediaProvider
+import com.dot.gallery.cloud.core.capabilities.SyncCapableProvider
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
 import com.dot.gallery.cloud.data.entity.CloudMediaEntity
+import com.dot.gallery.cloud.image.CloudFetcherRegistryHolder
 import com.dot.gallery.cloud.network.LanBindingSocketFactory
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismApiService
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthInterceptor
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthMode
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthenticator
+import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismImportOptionsDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismPhotoDto
+import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismUploadOptionsDto
 import com.dot.gallery.core.Resource
+import com.dot.gallery.feature_node.domain.model.Media
+import com.dot.gallery.feature_node.domain.util.getUri
 import com.dot.gallery.feature_node.presentation.util.printDebug
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -34,14 +43,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -49,7 +65,7 @@ class PhotoPrismProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val authInterceptor: PhotoPrismAuthInterceptor,
     private val cloudMediaDao: CloudMediaDao
-) : RemoteMediaProvider, Disconnectable {
+) : RemoteMediaProvider, SyncCapableProvider, Disconnectable {
 
     override val providerType = ProviderType.PHOTOPRISM
     override val displayName = "PhotoPrism"
@@ -62,6 +78,19 @@ class PhotoPrismProvider @Inject constructor(
     private var apiService: PhotoPrismApiService? = null
     private val hashByRemoteId = ConcurrentHashMap<String, String>()
 
+    /** PhotoPrism user UID required by the upload API path. */
+    @Volatile
+    private var userUid: String? = null
+
+    /**
+     * Client-side token that groups a backup-worker batch of multipart uploads.
+     * PhotoPrism stages files under users/{uid}/upload/{sessionRef+token}.
+     */
+    @Volatile
+    private var uploadBatchToken: String? = null
+
+    private val pendingUploadCount = AtomicInteger(0)
+
     private val lanSocketFactory = LanBindingSocketFactory(context)
 
     override val isAvailable: Boolean
@@ -71,7 +100,8 @@ class PhotoPrismProvider @Inject constructor(
         ProviderCapability.REMOTE_ASSETS,
         ProviderCapability.REMOTE_ALBUMS,
         ProviderCapability.FAVORITE,
-        ProviderCapability.TEXT_SEARCH
+        ProviderCapability.TEXT_SEARCH,
+        ProviderCapability.SYNC
     )
 
     override fun disconnect() {
@@ -81,6 +111,9 @@ class PhotoPrismProvider @Inject constructor(
         authInterceptor.clear()
         hashByRemoteId.clear()
         baseUrl = ""
+        userUid = null
+        uploadBatchToken = null
+        pendingUploadCount.set(0)
     }
 
     override fun configure(config: CloudServerConfig) {
@@ -216,12 +249,21 @@ class PhotoPrismProvider @Inject constructor(
             authInterceptor.username = config.username
             authInterceptor.password = config.password
             applyConfigTokens(auth.previewToken, auth.downloadToken)
+            userUid = auth.userId?.takeIf { it.isNotBlank() }
 
             // Ensure preview/download tokens exist (static token path may only get them from /config).
             if (authInterceptor.previewToken.isNullOrBlank() || authInterceptor.downloadToken.isNullOrBlank()) {
                 val cfg = requireApi().getConfig()
                 if (cfg.isSuccessful) {
                     applyConfigTokens(cfg.body()?.previewToken, cfg.body()?.downloadToken)
+                }
+            }
+
+            // Upload API needs the user UID; static app passwords often omit it on /config.
+            if (userUid.isNullOrBlank()) {
+                val session = requireApi().getSession()
+                if (session.isSuccessful) {
+                    userUid = session.body()?.user?.uid?.takeIf { it.isNotBlank() }
                 }
             }
 
@@ -241,7 +283,7 @@ class PhotoPrismProvider @Inject constructor(
             Result.success(
                 CloudAuthToken(
                     accessToken = auth.accessToken,
-                    userId = auth.userId,
+                    userId = userUid ?: auth.userId,
                     userEmail = auth.userEmail,
                     isAdmin = auth.isAdmin
                 )
@@ -607,4 +649,213 @@ class PhotoPrismProvider @Inject constructor(
 
     override suspend fun getStorageInfo(): Result<CloudStorageInfo> =
         Result.failure(UnsupportedOperationException("PhotoPrism does not expose storage quota via this API"))
+
+    // === Sync / Upload ===
+
+    private fun ensureUploadBatchToken(): String {
+        uploadBatchToken?.let { return it }
+        val token = UUID.randomUUID().toString().replace("-", "").take(8)
+        uploadBatchToken = token
+        return token
+    }
+
+    private fun requireUserUid(): String =
+        userUid?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException(
+                "PhotoPrism user UID unknown — re-authenticate (session must include user.UID)"
+            )
+
+    /**
+     * Relative import path for the current upload batch (`/upload/{token}`).
+     * PhotoPrism remaps this with the session ref so staged user uploads are indexed.
+     */
+    fun currentUploadImportPath(): String? =
+        uploadBatchToken?.let { "/upload/$it" }
+
+    override suspend fun uploadAsset(localMedia: Media, targetPath: String?): Result<CloudMediaEntity> {
+        return try {
+            val configId = currentConfig?.id ?: 0L
+            val uid = requireUserUid()
+            val token = ensureUploadBatchToken()
+            val mediaUri = localMedia.getUri()
+            val inputStream = context.contentResolver.openInputStream(mediaUri)
+                ?: return Result.failure(Exception("Cannot open media file"))
+            val mimeType = localMedia.mimeType
+            val fileName = localMedia.label
+            val tempFile = File(context.cacheDir, "pp_upload_${System.currentTimeMillis()}_$fileName")
+            try {
+                inputStream.use { input -> tempFile.outputStream().use { output -> input.copyTo(output) } }
+                val requestBody = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
+                // PhotoPrism expects the multipart field name "files".
+                val filePart = MultipartBody.Part.createFormData("files", fileName, requestBody)
+                val response = requireApi().uploadUserFiles(uid, token, filePart)
+                if (response.isSuccessful) {
+                    pendingUploadCount.incrementAndGet()
+                    val entity = CloudMediaEntity(
+                        remoteId = "upload:$token:$fileName",
+                        providerType = ProviderType.PHOTOPRISM,
+                        serverConfigId = configId,
+                        label = fileName,
+                        path = currentUploadImportPath().orEmpty(),
+                        relativePath = currentUploadImportPath().orEmpty(),
+                        mimeType = mimeType,
+                        timestamp = System.currentTimeMillis(),
+                        size = tempFile.length(),
+                        syncState = SyncState.SYNCED,
+                        contentHash = null
+                    )
+                    cloudMediaDao.insert(entity)
+                    Result.success(entity)
+                } else {
+                    Result.failure(
+                        Exception("PhotoPrism upload failed: ${response.code()} ${response.message()}")
+                    )
+                }
+            } finally {
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun downloadAsset(remoteId: String): Result<Uri> {
+        return try {
+            val url = getOriginalUrl(remoteId)
+            if (url.isBlank()) {
+                return Result.failure(Exception("No download URL for $remoteId"))
+            }
+            val authHeaders = getAuthHeaders()
+            val requestBuilder = Request.Builder().url(url).get()
+            authHeaders.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
+            val client = CloudFetcherRegistryHolder.okHttpClient
+                ?: return Result.failure(Exception("OkHttpClient not initialized"))
+            val response = client.newCall(requestBuilder.build()).execute()
+            if (!response.isSuccessful) {
+                return Result.failure(Exception("Download failed: ${response.code}"))
+            }
+            val body = response.body ?: return Result.failure(Exception("Empty response"))
+            val ext = when {
+                body.contentType()?.subtype?.contains("jpeg") == true -> ".jpg"
+                body.contentType()?.subtype?.contains("png") == true -> ".png"
+                body.contentType()?.subtype?.contains("mp4") == true -> ".mp4"
+                else -> ""
+            }
+            val cacheFile = File(context.cacheDir, "pp_download_${remoteId.take(12)}$ext")
+            body.byteStream().use { input -> cacheFile.outputStream().use { output -> input.copyTo(output) } }
+            Result.success(cacheFile.toUri())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getChangedSince(timestamp: Long): Result<List<CloudMediaEntity>> {
+        // PhotoPrism has no updatedAfter filter on /photos; best-effort newest page.
+        return try {
+            val response = requireApi().getPhotos(count = 1000, offset = 0, order = "newest")
+            if (response.isSuccessful) {
+                captureTokensFromHeaders(response.headers())
+                val entities = mapPhotos(response.body().orEmpty())
+                    .filter { it.timestamp >= timestamp }
+                Result.success(entities)
+            } else {
+                Result.failure(Exception("Failed to fetch changes: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun bulkUploadCheck(hashes: List<String>): Result<Map<String, Boolean>> {
+        // No server-side bulk checksum API; best-effort against local contentHash cache.
+        return try {
+            val configId = currentConfig?.id ?: 0L
+            val result = hashes.mapIndexed { index, hash ->
+                val exists = if (hash.isBlank()) {
+                    false
+                } else {
+                    val cached = cloudMediaDao.getByContentHash(hash)
+                    cached != null &&
+                        cached.providerType == ProviderType.PHOTOPRISM &&
+                        (configId == 0L || cached.serverConfigId == configId)
+                }
+                index.toString() to exists
+            }.toMap()
+            Result.success(result)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Best-effort: treat as present when Room already has a PhotoPrism row for this
+     * account with the same file name (and matching size when known).
+     */
+    override suspend fun remoteExists(localMedia: Media, targetPath: String?): Boolean {
+        return try {
+            val configId = currentConfig?.id ?: return false
+            val label = localMedia.label
+            val localSize = runCatching {
+                context.contentResolver.openAssetFileDescriptor(localMedia.getUri(), "r")?.use { it.length }
+            }.getOrNull()
+            cloudMediaDao.getAllCachedAsync().any { entity ->
+                entity.providerType == ProviderType.PHOTOPRISM &&
+                    entity.serverConfigId == configId &&
+                    entity.label.equals(label, ignoreCase = true) &&
+                    (localSize == null || localSize <= 0L || entity.size <= 0L || entity.size == localSize)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * After a backup batch: process staged user uploads (PUT), then trigger
+     * `POST /api/v1/import/` for `/upload/{token}` so PhotoPrism indexes the folder.
+     */
+    override suspend fun afterUploadBatch(): Result<Unit> {
+        val token = uploadBatchToken
+        val uid = userUid
+        if (token.isNullOrBlank() || uid.isNullOrBlank() || pendingUploadCount.get() <= 0) {
+            uploadBatchToken = null
+            pendingUploadCount.set(0)
+            return Result.success(Unit)
+        }
+        val importPath = "/upload/$token"
+        return try {
+            // Native finalize used by PhotoPrism's own web UI (moves staged files → originals).
+            val process = requireApi().processUserUpload(uid, token, PhotoPrismUploadOptionsDto())
+            if (!process.isSuccessful) {
+                printDebug(
+                    "PhotoPrismProvider: process upload failed ${process.code()} ${process.message()}"
+                )
+            }
+
+            // Explicit import trigger for the staged upload folder path.
+            val importResp = requireApi().startImport(
+                PhotoPrismImportOptionsDto(path = importPath, move = true)
+            )
+            if (importResp.isSuccessful) {
+                printDebug("PhotoPrismProvider: import started for $importPath")
+                Result.success(Unit)
+            } else if (process.isSuccessful) {
+                // PUT already indexed; import may 403 for limited roles — still OK.
+                printDebug(
+                    "PhotoPrismProvider: import returned ${importResp.code()} after successful process"
+                )
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    Exception(
+                        "PhotoPrism import failed: ${importResp.code()} ${importResp.message()}"
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            uploadBatchToken = null
+            pendingUploadCount.set(0)
+        }
+    }
 }

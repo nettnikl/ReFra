@@ -13,12 +13,15 @@ import com.dot.gallery.cloud.core.CloudServerInfo
 import com.dot.gallery.cloud.core.CloudStorageInfo
 import com.dot.gallery.cloud.core.ConnectionState
 import com.dot.gallery.cloud.core.Disconnectable
+import com.dot.gallery.cloud.core.PersonInfo
 import com.dot.gallery.cloud.core.ProviderCapability
 import com.dot.gallery.cloud.core.ProviderType
 import com.dot.gallery.cloud.core.ThumbnailSize
+import com.dot.gallery.cloud.core.capabilities.PeopleCapableProvider
 import com.dot.gallery.cloud.core.capabilities.RemoteMediaProvider
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
 import com.dot.gallery.cloud.data.entity.CloudMediaEntity
+import com.dot.gallery.cloud.image.CloudMediaFetcher
 import com.dot.gallery.cloud.network.LanBindingSocketFactory
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismApiService
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthInterceptor
@@ -26,6 +29,7 @@ import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthMode
 import com.dot.gallery.cloud.photoprism.data.api.PhotoPrismAuthenticator
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismPhotoDto
 import com.dot.gallery.core.Resource
+import com.dot.gallery.feature_node.domain.model.Media
 import com.dot.gallery.feature_node.presentation.util.printDebug
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -49,7 +53,7 @@ class PhotoPrismProvider @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val authInterceptor: PhotoPrismAuthInterceptor,
     private val cloudMediaDao: CloudMediaDao
-) : RemoteMediaProvider, Disconnectable {
+) : RemoteMediaProvider, PeopleCapableProvider, Disconnectable {
 
     override val providerType = ProviderType.PHOTOPRISM
     override val displayName = "PhotoPrism"
@@ -61,6 +65,8 @@ class PhotoPrismProvider @Inject constructor(
     private var baseUrl: String = ""
     private var apiService: PhotoPrismApiService? = null
     private val hashByRemoteId = ConcurrentHashMap<String, String>()
+    /** Subject UID → face thumb hash (from subjects API) for person thumbnail URLs. */
+    private val thumbByPersonId = ConcurrentHashMap<String, String>()
 
     private val lanSocketFactory = LanBindingSocketFactory(context)
 
@@ -71,7 +77,8 @@ class PhotoPrismProvider @Inject constructor(
         ProviderCapability.REMOTE_ASSETS,
         ProviderCapability.REMOTE_ALBUMS,
         ProviderCapability.FAVORITE,
-        ProviderCapability.TEXT_SEARCH
+        ProviderCapability.TEXT_SEARCH,
+        ProviderCapability.PEOPLE
     )
 
     override fun disconnect() {
@@ -80,6 +87,7 @@ class PhotoPrismProvider @Inject constructor(
         apiService = null
         authInterceptor.clear()
         hashByRemoteId.clear()
+        thumbByPersonId.clear()
         baseUrl = ""
     }
 
@@ -607,4 +615,101 @@ class PhotoPrismProvider @Inject constructor(
 
     override suspend fun getStorageInfo(): Result<CloudStorageInfo> =
         Result.failure(UnsupportedOperationException("PhotoPrism does not expose storage quota via this API"))
+
+    // === People (subjects) ===
+
+    override fun getPeople(): Flow<Resource<List<PersonInfo>>> = flow {
+        try {
+            val response = requireApi().getSubjects(
+                count = 1000,
+                offset = 0,
+                type = "person",
+                files = 1
+            )
+            if (response.isSuccessful) {
+                captureTokensFromHeaders(response.headers())
+                val people = response.body()
+                    ?.asSequence()
+                    ?.filter { !it.hidden && !it.excluded }
+                    ?.filter { it.type.isBlank() || it.type.equals("person", ignoreCase = true) }
+                    ?.map { dto ->
+                        if (dto.thumb.isNotBlank()) {
+                            thumbByPersonId[dto.uid] = dto.thumb
+                        }
+                        PersonInfo(
+                            id = dto.uid,
+                            name = dto.name.ifBlank { dto.slug.ifBlank { dto.uid } },
+                            providerType = ProviderType.PHOTOPRISM,
+                            thumbnailUrl = CloudMediaFetcher.buildPersonUri(
+                                ProviderType.PHOTOPRISM,
+                                dto.uid,
+                                currentConfig?.id ?: -1L
+                            ),
+                            assetCount = dto.photoCount.takeIf { it > 0 } ?: dto.fileCount
+                        )
+                    }
+                    ?.toList()
+                    ?: emptyList()
+                emit(Resource.Success(people))
+            } else {
+                emit(Resource.Error("Failed to fetch people: ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emit(Resource.Error(e.message ?: "Unknown error"))
+        }
+    }
+
+    override fun getPersonMedia(personId: String): Flow<Resource<List<Media>>> = flow {
+        try {
+            val allMedia = mutableListOf<Media>()
+            var offset = 0
+            val pageSize = 200
+            var hasMore = true
+            while (hasMore) {
+                val response = requireApi().getPhotos(
+                    count = pageSize,
+                    offset = offset,
+                    subjectUid = personId
+                )
+                if (response.isSuccessful) {
+                    captureTokensFromHeaders(response.headers())
+                    val entities = mapPhotos(response.body().orEmpty())
+                    cloudMediaDao.insertAll(entities)
+                    allMedia.addAll(entities.map { it.toUriMedia() })
+                    hasMore = entities.size >= pageSize
+                    offset += pageSize
+                } else {
+                    emit(Resource.Error("Failed to fetch person media: ${response.code()}"))
+                    return@flow
+                }
+            }
+            emit(Resource.Success(allMedia.toList()))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emit(Resource.Error(e.message ?: "Unknown error"))
+        }
+    }
+
+    override fun getPersonThumbnailUrl(personId: String): String? {
+        val thumb = thumbByPersonId[personId] ?: return null
+        val token = authInterceptor.previewToken ?: return null
+        if (thumb.isBlank() || token.isBlank()) return null
+        return "$baseUrl/api/v1/t/$thumb/$token/tile_224"
+    }
+
+    override suspend fun updatePersonName(personId: String, name: String): Result<Unit> {
+        return try {
+            val response = requireApi().updateSubject(personId, mapOf("Name" to name))
+            if (response.isSuccessful) Result.success(Unit)
+            else Result.failure(Exception("Failed to update person name: ${response.code()}"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updatePersonBirthDate(personId: String, birthDate: String): Result<Unit> =
+        Result.failure(UnsupportedOperationException("PhotoPrism subjects do not support birth dates"))
 }

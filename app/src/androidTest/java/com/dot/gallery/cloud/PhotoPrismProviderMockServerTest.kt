@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.dot.gallery.cloud.core.CloudServerConfig
 import com.dot.gallery.cloud.core.ConnectionState
+import com.dot.gallery.cloud.core.ProviderCapability
 import com.dot.gallery.cloud.core.ProviderType
 import com.dot.gallery.cloud.core.ThumbnailSize
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
@@ -341,6 +342,70 @@ class PhotoPrismProviderMockServerTest {
 
         assertTrue(provider.toggleFavorite("photo-1", true).isFailure)
         assertTrue(dao.getFavoritesAsync().none { it.remoteId == "photo-1" })
+    }
+
+    @Test
+    fun capabilitiesIncludePeople() {
+        assertTrue(ProviderCapability.PEOPLE in provider.capabilities)
+    }
+
+    @Test
+    fun fetchPeopleAndPersonMedia() = runBlocking {
+        val subjectsJson = """
+            [{
+              "UID": "subj-1",
+              "Type": "person",
+              "Slug": "jane-doe",
+              "Name": "Jane Doe",
+              "Hidden": false,
+              "Excluded": false,
+              "PhotoCount": 2,
+              "FileCount": 2,
+              "Thumb": "facehash1"
+            },
+            {
+              "UID": "subj-hidden",
+              "Type": "person",
+              "Name": "Hidden",
+              "Hidden": true,
+              "PhotoCount": 1,
+              "Thumb": "x"
+            }]
+        """.trimIndent()
+        server.dispatcher = dispatcher { req ->
+            when {
+                req.path?.endsWith("/api/v1/config") == true ->
+                    json("""{ "previewToken": "pt", "downloadToken": "dt", "version": "1" }""")
+                req.path?.contains("/api/v1/subjects") == true && req.method == "GET" ->
+                    json(subjectsJson, mapOf("X-Preview-Token" to "pt"))
+                req.path?.contains("/api/v1/photos") == true &&
+                    req.requestUrl?.queryParameter("subject") == "subj-1" ->
+                    json(photoJson, mapOf("X-Preview-Token" to "pt", "X-Download-Token" to "dt"))
+                else -> null
+            }
+        }
+        val config = CloudServerConfig(
+            id = 5, providerType = ProviderType.PHOTOPRISM, serverUrl = baseUrl(), apiKey = "KEY"
+        )
+        provider.configure(config)
+        assertTrue(provider.authenticate(config).isSuccess)
+
+        val people = provider.getPeople().first()
+        assertTrue(people is Resource.Success)
+        val list = (people as Resource.Success).data!!
+        assertEquals(1, list.size)
+        assertEquals("subj-1", list[0].id)
+        assertEquals("Jane Doe", list[0].name)
+        assertEquals(ProviderType.PHOTOPRISM, list[0].providerType)
+        assertTrue(list[0].thumbnailUrl!!.contains("type=person"))
+
+        val thumb = provider.getPersonThumbnailUrl("subj-1")
+        assertTrue(thumb!!.contains("/api/v1/t/facehash1/pt/tile_224"))
+
+        val media = provider.getPersonMedia("subj-1").first()
+        assertTrue(media is Resource.Success)
+        assertEquals(1, (media as Resource.Success).data!!.size)
+        assertTrue(media.data!![0].id < 0)
     }
 
     @Test

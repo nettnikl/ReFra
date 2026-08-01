@@ -56,6 +56,26 @@ data class PhotoPrismAlbumDto(
     @SerializedName("UpdatedAt") val updatedAt: String? = null
 )
 
+/**
+ * Named subject from GET /api/v1/subjects (people when Type == "person").
+ * Thumb is a file hash (optionally with crop area) used with /api/v1/t/{Thumb}/…
+ */
+data class PhotoPrismSubjectDto(
+    @SerializedName("UID") val uid: String = "",
+    @SerializedName("Type") val type: String = "person",
+    @SerializedName("Slug") val slug: String = "",
+    @SerializedName("Name") val name: String = "",
+    @SerializedName("Alias") val alias: String = "",
+    @SerializedName("Favorite") val favorite: Boolean = false,
+    @SerializedName("Hidden") val hidden: Boolean = false,
+    @SerializedName("Private") val private: Boolean = false,
+    @SerializedName("Excluded") val excluded: Boolean = false,
+    @SerializedName("FileCount") val fileCount: Int = 0,
+    @SerializedName("PhotoCount") val photoCount: Int = 0,
+    @SerializedName("Thumb") val thumb: String = "",
+    @SerializedName("ThumbSrc") val thumbSrc: String? = null
+)
+
 data class PhotoPrismFileDto(
     @SerializedName("UID") val uid: String = "",
     @SerializedName("Hash") val hash: String = "",

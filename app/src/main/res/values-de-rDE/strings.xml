@@ -1049,7 +1049,7 @@
     <string name="cloud_add_immich">Immich-Server hinzufügen</string>
     <string name="cloud_add_owncloud">ownCloud-Server hinzufügen</string>
     <string name="cloud_server_url">Server-URL</string>
-    <string name="cloud_server_url_hint">https://dein-server.de</string>
+    <string name="cloud_server_url_hint">dein-server.de</string>
     <string name="cloud_api_key">API-Schlüssel</string>
     <string name="cloud_api_key_hint">Gib deinen API-Schlüssel ein</string>
     <string name="cloud_username">Benutzername</string>

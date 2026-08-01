@@ -6,6 +6,7 @@
 package com.dot.gallery.cloud.ui
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -104,7 +105,9 @@ fun CloudAddServerScreen(
     val isEditMode = configId != null && configId > 0
     val descriptor = remember(state.providerType) { ProviderUiDescriptors.forType(state.providerType) }
     val credentialValues = CredentialValues(state.apiKey, state.username, state.password)
-    val isUrlValid = state.serverUrl.isBlank() || descriptor.urlRegex.matches(state.serverUrl)
+    // Allow typing without scheme (e.g. photos.example.com); https:// is filled in on advance/save.
+    val normalizedServerUrl = remember(state.serverUrl) { normalizeCloudServerUrl(state.serverUrl) }
+    val isUrlValid = state.serverUrl.isBlank() || descriptor.urlRegex.matches(normalizedServerUrl)
     val hasRequiredCredentials = descriptor.credentialsSatisfied(credentialValues)
     val canSave = state.serverUrl.isNotBlank() && isUrlValid && hasRequiredCredentials && !state.isSaving
 
@@ -151,21 +154,33 @@ fun CloudAddServerScreen(
         if (isEditMode || safeIndex == 0) eventHandler.navigateUpAction()
         else stepIndex = (safeIndex - 1).coerceAtLeast(0)
     }
+    // System/gesture back must step the wizard (like SetupScreen), not pop the whole screen.
+    BackHandler { goBack() }
 
     // Warn once before proceeding with an unencrypted HTTP server URL. HTTP is allowed
     // (self-hosted servers over trusted tunnels often use it) but the user must confirm (#990).
-    val serverUrlTrimmed = state.serverUrl.trim()
+    val serverUrlTrimmed = normalizedServerUrl
     val isInsecureHttp = serverUrlTrimmed.startsWith("http://", ignoreCase = true)
     var httpAckUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var showHttpWarning by remember { mutableStateOf(false) }
     var pendingProceed by remember { mutableStateOf<(() -> Unit)?>(null) }
 
+    /** Persist scheme-normalized URL into state, then run [proceed]. */
+    val withNormalizedUrl: (() -> Unit) -> Unit = { proceed ->
+        if (state.serverUrl.trim() != normalizedServerUrl) {
+            viewModel.updateServerUrl(normalizedServerUrl)
+        }
+        proceed()
+    }
+
     val guardHttp: (() -> Unit) -> Unit = { proceed ->
-        if (isInsecureHttp && httpAckUrl != serverUrlTrimmed) {
-            pendingProceed = proceed
-            showHttpWarning = true
-        } else {
-            proceed()
+        withNormalizedUrl {
+            if (isInsecureHttp && httpAckUrl != serverUrlTrimmed) {
+                pendingProceed = proceed
+                showHttpWarning = true
+            } else {
+                proceed()
+            }
         }
     }
 
@@ -240,7 +255,14 @@ fun CloudAddServerScreen(
         ) {
             if (isEditMode) {
                 ServerStep(state, descriptor, isUrlValid, viewModel)
-                CredentialsStep(state, descriptor, credentialValues, viewModel)
+                CredentialsStep(
+                    state = state,
+                    descriptor = descriptor,
+                    credentialValues = credentialValues,
+                    viewModel = viewModel,
+                    normalizedServerUrl = normalizedServerUrl,
+                    ensureNormalizedUrl = withNormalizedUrl,
+                )
             } else {
                 AnimatedContent(
                     targetState = safeIndex,
@@ -258,7 +280,14 @@ fun CloudAddServerScreen(
                         when (steps[idx]) {
                             WizardStep.SERVER -> ServerStep(state, descriptor, isUrlValid, viewModel)
                             WizardStep.CREDENTIALS ->
-                                CredentialsStep(state, descriptor, credentialValues, viewModel)
+                                CredentialsStep(
+                                    state = state,
+                                    descriptor = descriptor,
+                                    credentialValues = credentialValues,
+                                    viewModel = viewModel,
+                                    normalizedServerUrl = normalizedServerUrl,
+                                    ensureNormalizedUrl = withNormalizedUrl,
+                                )
                             WizardStep.NETWORKING -> NetworkingStep(state, viewModel)
                             WizardStep.SYNC -> SyncStep(state, localAlbums, viewModel)
                             WizardStep.REVIEW -> ReviewStep(state, descriptor)
@@ -360,7 +389,9 @@ private fun CredentialsStep(
     state: AddServerUiState,
     descriptor: com.dot.gallery.cloud.ui.descriptor.ProviderUiDescriptor,
     credentialValues: CredentialValues,
-    viewModel: CloudAccountsViewModel
+    viewModel: CloudAccountsViewModel,
+    normalizedServerUrl: String,
+    ensureNormalizedUrl: (() -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     val browserLoginLauncher = rememberLauncherForActivityResult(
@@ -398,9 +429,11 @@ private fun CredentialsStep(
             applyBottomPadding = false,
             applyInsets = false,
             onClick = {
-                browserLoginLauncher.launch(
-                    PhotoPrismBrowserLoginActivity.createIntent(context, state.serverUrl.trim())
-                )
+                ensureNormalizedUrl {
+                    browserLoginLauncher.launch(
+                        PhotoPrismBrowserLoginActivity.createIntent(context, normalizedServerUrl)
+                    )
+                }
             }
         )
         if (state.apiKey.isNotBlank() && state.username.isBlank() && state.password.isBlank()) {
@@ -454,7 +487,7 @@ private fun CredentialsStep(
         applyHorizontalPadding = false,
         applyBottomPadding = false,
         applyInsets = false,
-        onClick = viewModel::testConnection
+        onClick = { ensureNormalizedUrl { viewModel.testConnection() } }
     )
     state.testResult?.let { result ->
         Spacer(Modifier.height(8.dp))
@@ -834,4 +867,12 @@ private fun SetupHelpCard(hintText: String) {
             )
         }
     }
+}
+
+/** Prepends https:// when the user omitted a scheme (http:// stays explicit for the warning). */
+internal fun normalizeCloudServerUrl(raw: String): String {
+    val trimmed = raw.trim().trimEnd('/')
+    if (trimmed.isBlank()) return trimmed
+    if (trimmed.contains("://")) return trimmed
+    return "https://$trimmed"
 }

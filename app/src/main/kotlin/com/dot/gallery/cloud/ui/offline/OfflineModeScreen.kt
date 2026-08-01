@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dot.gallery.R
 import com.dot.gallery.core.Position
 import com.dot.gallery.core.SettingsEntity
 import com.dot.gallery.core.presentation.components.SetupButton
@@ -112,6 +113,16 @@ fun OfflineModeScreen(
                     summary = "Don't write to the cache on metered connections",
                     isChecked = state.cacheWifiOnly,
                     onCheck = { viewModel.setCacheWifiOnly(it) },
+                    screenPosition = Position.Middle
+                )
+            )
+            add(
+                SettingsEntity.SwitchPreference(
+                    icon = Icons.Outlined.CloudDownload,
+                    title = context.getString(R.string.cloud_offline_download_favorites),
+                    summary = context.getString(R.string.cloud_offline_download_favorites_summary),
+                    isChecked = state.downloadFavoritesFullRes,
+                    onCheck = { viewModel.setDownloadFavoritesFullRes(it) },
                     screenPosition = Position.Middle
                 )
             )

@@ -1498,6 +1498,8 @@
     <string name="cloud_backup_global_options">Global options</string>
     <string name="cloud_offline_title">Offline &amp; Cache</string>
     <string name="cloud_offline_summary">Cached media and downloads for offline use</string>
+    <string name="cloud_offline_download_favorites">Download favorites offline</string>
+    <string name="cloud_offline_download_favorites_summary">Keep full-resolution copies of cloud favorites for offline viewing</string>
     <string name="cloud_backup_autosync">Auto-sync</string>
     <string name="cloud_backup_now">Back up now</string>
     <string name="cloud_backup_all_now">Back up all now</string>

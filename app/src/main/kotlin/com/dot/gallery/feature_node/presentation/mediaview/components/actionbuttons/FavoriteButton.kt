@@ -8,10 +8,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import com.dot.gallery.R
 import com.dot.gallery.core.LocalMediaHandler
 import com.dot.gallery.feature_node.domain.model.Media
+import com.dot.gallery.feature_node.domain.util.isCloud
 import com.dot.gallery.feature_node.domain.util.isFavorite
 import com.dot.gallery.feature_node.domain.util.readUriOnly
 import com.dot.gallery.feature_node.presentation.util.rememberActivityResult
@@ -25,7 +27,7 @@ fun <T : Media> FavoriteButton(
 ) {
     val handler = LocalMediaHandler.current
     val scope = rememberCoroutineScope()
-    var lastFavorite = remember(media) { media.isFavorite }
+    var lastFavorite by remember(media) { mutableStateOf(media.isFavorite) }
     val result = rememberActivityResult(
         onResultOk = {
             lastFavorite = !lastFavorite
@@ -47,7 +49,16 @@ fun <T : Media> FavoriteButton(
             enabled = enabled
         ) {
             scope.launch {
-                handler.toggleFavorite(result = result, arrayListOf(it), it.favorite != 1)
+                val turningOn = !lastFavorite
+                // Cloud favorites don't go through MediaStore's ActivityResult, so flip UI
+                // immediately and revert if the remote/local Room toggle fails.
+                if (it.isCloud) {
+                    lastFavorite = turningOn
+                    val ok = handler.toggleFavorite(result = result, arrayListOf(it), turningOn)
+                    if (!ok) lastFavorite = !turningOn
+                } else {
+                    handler.toggleFavorite(result = result, arrayListOf(it), turningOn)
+                }
             }
         }
     }

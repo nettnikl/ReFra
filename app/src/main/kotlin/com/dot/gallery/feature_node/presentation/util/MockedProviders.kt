@@ -97,12 +97,12 @@ class MockedMediaHandler: MediaHandler {
         result: ActivityResultLauncher<IntentSenderRequest>,
         mediaList: List<T>,
         favorite: Boolean
-    ) = Unit
+    ): Boolean = true
 
     override suspend fun <T : Media> toggleFavorite(
         result: ActivityResultLauncher<IntentSenderRequest>,
         mediaList: List<T>
-    ) = Unit
+    ): Boolean = true
 
     override suspend fun <T : Media> trashMedia(
         result: ActivityResultLauncher<IntentSenderRequest>,

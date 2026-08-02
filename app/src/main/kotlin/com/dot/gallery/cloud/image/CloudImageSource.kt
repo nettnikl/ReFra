@@ -69,16 +69,20 @@ class CloudImageSource private constructor(
         /**
          * Ensure the original is cached locally (downloading it off the main thread if needed) and
          * return a file-backed source. Call from a coroutine before handing the source to ZoomImage.
+         *
+         * @param fileId optional server file hash/id (e.g. PhotoPrism Hash) when the provider's
+         * in-memory map may still be cold.
          */
         suspend fun create(
             context: Context,
             providerType: ProviderType,
             remoteId: String,
             configId: Long = -1L,
+            fileId: String? = null,
         ): CloudImageSource = withContext(Dispatchers.IO) {
             val file = cacheFileFor(context, providerType, remoteId, configId)
             if (!file.exists() || file.length() == 0L) {
-                downloadOriginal(providerType, remoteId, configId, file)
+                downloadOriginal(providerType, remoteId, configId, file, fileId)
             }
             CloudImageSource(providerType, remoteId, configId, file)
         }
@@ -99,13 +103,14 @@ class CloudImageSource private constructor(
             remoteId: String,
             configId: Long,
             target: File,
+            fileId: String? = null,
         ) {
             val registry = CloudFetcherRegistryHolder.registry
                 ?: throw IllegalStateException("ProviderRegistry not available")
             val provider = registry.resolveRemote(providerType, configId)
                 ?: throw IllegalStateException("No remote provider for $providerType")
 
-            val url = provider.getOriginalUrl(remoteId)
+            val url = provider.getOriginalUrl(remoteId, fileId)
             if (url.isBlank()) throw IllegalStateException("No original URL for $remoteId")
 
             val requestBuilder = Request.Builder().url(url).get()

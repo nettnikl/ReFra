@@ -14,8 +14,10 @@ package com.dot.gallery.cloud.core
  * to consult cheaply from any thread — without threading a `configId` through every
  * image/log call site.
  *
- * Only [verboseLogging] is consumed today (via [CloudTrace]); the remaining fields are kept
- * here so future consumption is a one-line read rather than another plumbing pass.
+ * [loadOriginalImage] gates full-resolution download in the media viewer
+ * ([com.dot.gallery.feature_node.presentation.mediaview.components.media.ZoomablePagerImage]).
+ * New PhotoPrism accounts default it to true so opening a photo fetches the original while
+ * the gallery grid continues to use thumbnail/preview sizes.
  */
 object CloudRuntimeSettings {
 

@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.dot.gallery.cloud.core.CloudRuntimeSettings
+import com.dot.gallery.cloud.core.CloudTrace
 import com.dot.gallery.cloud.core.ProviderType
 import com.dot.gallery.cloud.image.CloudImageSource
 import com.dot.gallery.core.Constants.DEFAULT_TOP_BAR_ANIMATION_DURATION
@@ -104,6 +105,7 @@ import com.github.panpf.zoomimage.util.IntSizeCompat
 import com.github.panpf.zoomimage.util.isNotEmpty
 import com.github.panpf.zoomimage.zoom.ContentScaleCompat
 import com.github.panpf.zoomimage.zoom.ScalesCalculator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -495,6 +497,7 @@ fun <T : Media> ZoomablePagerImage(
         LaunchedEffect(media, isFullImageLoaded, zoomState.subsampling) {
             // Respect the cloud "Load original image" viewer setting: when off, skip the
             // full-resolution original download and keep the lightweight preview (data saver).
+            // PhotoPrism accounts default this on so opening a photo fetches the original.
             if (!CloudRuntimeSettings.loadOriginalImage) return@LaunchedEffect
             val uri = media.getUri()
             val providerName = uri.authority ?: return@LaunchedEffect
@@ -503,18 +506,26 @@ fun <T : Media> ZoomablePagerImage(
             // .first() would truncate it to the folder and request the directory as the original.
             val remoteId = uri.path?.trimStart('/')?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
             val configId = uri.getQueryParameter("cfg")?.toLongOrNull() ?: -1L
+            val fileId = uri.getQueryParameter("fileId")?.takeIf { it.isNotBlank() }
             // Signal that the full-size original is being fetched for subsampling so the UI can show
             // a subtle loading indicator. try/finally guarantees the flag is cleared on success,
             // failure, or cancellation (e.g. swiping to another page mid-download).
             onSubsamplingLoadingChange(true)
-            val cloudSource = try {
-                CloudImageSource.create(context, providerType, remoteId, configId)
-            } catch (_: Exception) {
-                return@LaunchedEffect
+            try {
+                val cloudSource = CloudImageSource.create(
+                    context, providerType, remoteId, configId, fileId
+                )
+                zoomState.setSubsamplingImage(SubsamplingImage(imageSource = cloudSource))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Surface failures — previously a bare catch left the viewer stuck on preview.
+                CloudTrace.w(
+                    "ZoomablePagerImage: original download failed for $providerType/$remoteId: ${e.message}"
+                )
             } finally {
                 onSubsamplingLoadingChange(false)
             }
-            zoomState.setSubsamplingImage(SubsamplingImage(imageSource = cloudSource))
         }
     } else if (isJxl) {
         // Android's BitmapRegionDecoder can't decode JXL, so enable subsampling backed by a

@@ -7,9 +7,12 @@ package com.dot.gallery.cloud.photoprism.data.api
 
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismAlbumDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismConfigDto
+import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismImportOptionsDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismOAuthTokenDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismPhotoDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismSessionDto
+import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismUploadOptionsDto
+import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
@@ -17,7 +20,10 @@ import retrofit2.http.DELETE
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.PUT
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -73,4 +79,34 @@ interface PhotoPrismApiService {
 
     @DELETE("api/v1/photos/{uid}/like")
     suspend fun unlikePhoto(@Path("uid") uid: String): Response<Unit>
+
+    /**
+     * Stage files into the user's upload folder. Field name must be `files`
+     * (PhotoPrism multipart upload API).
+     */
+    @Multipart
+    @POST("api/v1/users/{uid}/upload/{token}")
+    suspend fun uploadUserFiles(
+        @Path("uid") userUid: String,
+        @Path("token") token: String,
+        @Part files: MultipartBody.Part
+    ): Response<Unit>
+
+    /**
+     * Process previously staged uploads (PhotoPrism web UI finalize step).
+     * Moves files from the user upload folder into originals and indexes them.
+     */
+    @PUT("api/v1/users/{uid}/upload/{token}")
+    suspend fun processUserUpload(
+        @Path("uid") userUid: String,
+        @Path("token") token: String,
+        @Body body: PhotoPrismUploadOptionsDto
+    ): Response<Unit>
+
+    /**
+     * Start library import for a path under the import root
+     * (e.g. `/upload/{token}` for a staged upload batch).
+     */
+    @POST("api/v1/import/")
+    suspend fun startImport(@Body body: PhotoPrismImportOptionsDto): Response<Unit>
 }

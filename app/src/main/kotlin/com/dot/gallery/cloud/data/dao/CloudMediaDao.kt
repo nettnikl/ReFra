@@ -46,6 +46,16 @@ interface CloudMediaDao {
     )
     fun getFileIdBlocking(remoteId: String, providerType: ProviderType): String?
 
+    @Query(
+        "SELECT * FROM cloud_media WHERE remoteId = :remoteId AND providerType = :providerType " +
+            "AND serverConfigId = :serverConfigId LIMIT 1"
+    )
+    suspend fun getByRemoteIdAndConfig(
+        remoteId: String,
+        providerType: ProviderType,
+        serverConfigId: Long
+    ): CloudMediaEntity?
+
     @Query("SELECT * FROM cloud_media WHERE contentHash = :hash LIMIT 1")
     suspend fun getByContentHash(hash: String): CloudMediaEntity?
 

@@ -1127,16 +1127,17 @@ class MediaRepositoryImpl(
     }
 
     private suspend fun collectCloudMetadata(media: Media) = withContext(Dispatchers.IO) {
-        val uri = media.getUri()
-        val providerName = uri.authority ?: return@withContext
-        // remoteId may contain slashes (SMB/NFS/WebDAV paths like "Photos/IMG.jpg"); pathSegments
-        // .first() would truncate it and never match the stored entity's remoteId.
-        val remoteId = uri.path?.trimStart('/')?.takeIf { it.isNotEmpty() } ?: return@withContext
-        val providerType = try {
-            com.dot.gallery.cloud.core.ProviderType.valueOf(providerName)
-        } catch (_: Exception) { return@withContext }
-        val entity = database.getCloudMediaDao().getByRemoteId(remoteId, providerType)
+        val cloudUri = com.dot.gallery.cloud.core.CloudUri.parse(media.getUri().toString())
             ?: return@withContext
+        val entity = if (cloudUri.configId > 0L) {
+            database.getCloudMediaDao().getByRemoteIdAndConfig(
+                cloudUri.remoteId,
+                cloudUri.providerType,
+                cloudUri.configId
+            ) ?: database.getCloudMediaDao().getByRemoteId(cloudUri.remoteId, cloudUri.providerType)
+        } else {
+            database.getCloudMediaDao().getByRemoteId(cloudUri.remoteId, cloudUri.providerType)
+        } ?: return@withContext
         val locationName = listOfNotNull(entity.city, entity.state, entity.country)
             .joinToString(", ").ifBlank { null }
         val metadata = MediaMetadata(

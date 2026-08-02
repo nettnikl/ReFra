@@ -75,6 +75,10 @@ interface MetadataDao {
     @Query("SELECT * FROM media_metadata_core WHERE mediaId = :id")
     fun getFullMetadata(id: Long): Flow<FullMediaMetadata>
 
+    @Transaction
+    @Query("SELECT * FROM media_metadata_core WHERE mediaId = :id")
+    suspend fun getFullMetadataOnce(id: Long): FullMediaMetadata?
+
     @Query("SELECT * FROM media_metadata_core WHERE mediaId = :id")
     suspend fun getCoreMetadata(id: Long): MediaMetadataCore?
 

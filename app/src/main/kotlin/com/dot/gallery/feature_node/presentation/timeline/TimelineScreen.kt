@@ -105,7 +105,6 @@ import com.dot.gallery.feature_node.presentation.common.components.StickyHeaderG
 import com.dot.gallery.feature_node.presentation.common.components.TimelineScroller
 import com.dot.gallery.feature_node.presentation.common.components.rememberMosaicMonthSegments
 import com.dot.gallery.feature_node.presentation.common.components.rememberMosaicPinchZoomState
-import com.dot.gallery.feature_node.presentation.common.components.rememberStickyHeaderItem
 import com.dot.gallery.feature_node.presentation.help.components.WhatsNewHeroCard
 import com.dot.gallery.feature_node.presentation.mediaview.rememberedDerivedState
 import com.dot.gallery.feature_node.presentation.search.MainSearchBar

@@ -73,6 +73,7 @@ import com.dot.gallery.feature_node.domain.model.MosaicTilePattern
 import com.dot.gallery.feature_node.domain.model.isBigHeaderKey
 import com.dot.gallery.feature_node.domain.model.isHeaderKey
 import com.dot.gallery.feature_node.domain.model.mosaicPatternsForColumns
+import com.dot.gallery.feature_node.domain.util.dominantCityForMediaIds
 import com.dot.gallery.feature_node.presentation.mediaview.rememberedDerivedState
 import com.dot.gallery.feature_node.presentation.util.mediaSharedElement
 import com.dot.gallery.feature_node.presentation.util.mosaicGridDragHandler
@@ -450,6 +451,9 @@ fun <T : Media> MosaicMediaGrid(
                                 header.text
                                     .replace("Today", stringToday)
                                     .replace("Yesterday", stringYesterday)
+                            },
+                            location = remember(header.data, metadataState.value) {
+                                dominantCityForMediaIds(header.data, metadataState.value.metadataMap)
                             },
                             showAsBig = remember(header, bigHeaders) { header.key.isBigHeaderKey || bigHeaders },
                             bigHeaderOnly = bigHeaders,

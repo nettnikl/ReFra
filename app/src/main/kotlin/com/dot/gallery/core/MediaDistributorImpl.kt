@@ -46,6 +46,7 @@ import com.dot.gallery.cloud.core.SyncState
 import com.dot.gallery.cloud.core.cloudAlbumId
 import com.dot.gallery.cloud.core.cloudMediaId
 import com.dot.gallery.cloud.core.stableIdHash
+import com.dot.gallery.cloud.data.dao.CloudAlbumMemberDao
 import com.dot.gallery.cloud.data.entity.CloudMediaEntity
 import com.dot.gallery.cloud.data.repository.CloudRepository
 import com.dot.gallery.cloud.sync.CloudUploadWorker
@@ -104,6 +105,7 @@ class MediaDistributorImpl @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val repository: MediaRepository,
     private val cloudRepository: CloudRepository,
+    private val cloudAlbumMemberDao: CloudAlbumMemberDao,
     private val eventHandler: EventHandler,
     workManager: WorkManager,
     private val scannedMediaDao: ScannedMediaDao
@@ -304,7 +306,17 @@ class MediaDistributorImpl @Inject constructor(
     // === Cloud integration at distributor level ===
 
     private val _cloudAlbumsFlow = MutableStateFlow<List<CloudAlbum>>(emptyList())
-    private val _cloudAlbumMemberRemoteIds = MutableStateFlow<Set<String>>(emptySet())
+    /** Live membership from album refresh (all providers). */
+    private val _cloudAlbumMemberRemoteIdsLive = MutableStateFlow<Set<String>>(emptySet())
+    /**
+     * Persisted PhotoPrism (and any future) junction membership, unioned with live refresh
+     * so unsorted albums stay correct across restarts before the next network refresh.
+     */
+    private val _cloudAlbumMemberRemoteIds: StateFlow<Set<String>> = combine(
+        _cloudAlbumMemberRemoteIdsLive,
+        cloudAlbumMemberDao.getAllRemoteIdsFlow().map { it.toSet() }.distinctUntilChanged()
+    ) { live, persisted -> live + persisted }
+        .stateIn(appScope, SharingStarted.Eagerly, emptySet())
 
     companion object {
         private const val UNSORTED_ALBUM_SENTINEL = "__unsorted__"
@@ -425,7 +437,7 @@ class MediaDistributorImpl @Inject constructor(
                 if (updated !== album) didEnrich = true
                 enriched.add(updated)
             }
-            _cloudAlbumMemberRemoteIds.value = memberIds
+            _cloudAlbumMemberRemoteIdsLive.value = memberIds
             if (didEnrich) _cloudAlbumsFlow.value = enriched
         } catch (_: Exception) { }
         // Fetch trashed items into cache so the trash screen has cloud data
@@ -809,13 +821,14 @@ class MediaDistributorImpl @Inject constructor(
                         val albumSort = values[3] as Settings.Album.LastSort
                         @Suppress("UNCHECKED_CAST")
                         val cachedNonTrashed = values[4] as List<Media.UriMedia>
-                        val cachedIds = cachedNonTrashed.mapTo(HashSet()) { it.id }
+                        val cachedById = cachedNonTrashed.associateBy { it.id }
                         val allMedia = when (resource) {
                             is Resource.Success -> resource.data?.map { it.toUriMedia() } ?: emptyList()
                             is Resource.Error -> resource.data?.map { it.toUriMedia() } ?: emptyList()
                         }
-                        // Filter out items that are no longer in the non-trashed cache
-                        val media = if (cachedIds.isNotEmpty()) allMedia.filter { it.id in cachedIds } else allMedia
+                        // Prefer timeline-cache rows (richer EXIF / favorite) when present, but do
+                        // not require prior cache membership — album API is the membership source.
+                        val media = allMedia.map { albumItem -> cachedById[albumItem.id] ?: albumItem }
                         val error = if (resource is Resource.Error) resource.message ?: "" else ""
                         val (defaultDateFormat, extendedDateFormat, weeklyDateFormat) = dateFormats
                         val sorter = when (albumSort.kind) {

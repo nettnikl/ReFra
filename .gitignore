@@ -30,3 +30,5 @@ ml-models/segment/
 # >>> ml-models split (managed) — reassembled at build time, do not commit
 ml-models/src/main/assets/arcface.onnx
 # <<< ml-models split (managed)
+
+.gradle-home/

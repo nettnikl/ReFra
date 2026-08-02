@@ -7,6 +7,7 @@ package com.dot.gallery.cloud.di
 
 import com.dot.gallery.cloud.core.ProviderInstanceFactory
 import com.dot.gallery.cloud.core.ProviderRegistry
+import com.dot.gallery.cloud.data.dao.CloudAlbumMemberDao
 import com.dot.gallery.cloud.data.dao.CloudAlbumSyncDao
 import com.dot.gallery.cloud.data.dao.CloudDeleteLocalPrefDao
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
@@ -64,6 +65,11 @@ abstract class CloudModule {
         @Singleton
         fun provideCloudAlbumSyncDao(database: InternalDatabase): CloudAlbumSyncDao =
             database.getCloudAlbumSyncDao()
+
+        @Provides
+        @Singleton
+        fun provideCloudAlbumMemberDao(database: InternalDatabase): CloudAlbumMemberDao =
+            database.getCloudAlbumMemberDao()
 
         @Provides
         @Singleton

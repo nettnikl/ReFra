@@ -112,24 +112,34 @@ fun FCastDevicePickerDialog(
                         tint = MaterialTheme.colorScheme.error
                     )
                 } else {
-                    if (state.isDiscovering && state.discoveredDevices.isEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
+                    if (state.discoveredDevices.isEmpty()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 24.dp)
+                                .padding(vertical = 16.dp)
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.width(12.dp))
+                            if (state.isDiscovering) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        text = stringResource(R.string.cast_searching),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                Spacer(Modifier.height(12.dp))
+                            }
                             Text(
-                                text = stringResource(R.string.cast_searching),
-                                style = MaterialTheme.typography.bodyMedium
+                                text = stringResource(R.string.cast_fcast_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-
-                    if (state.discoveredDevices.isNotEmpty()) {
+                    } else {
                         LazyColumn {
                             items(state.discoveredDevices) { device ->
                                 DeviceItem(

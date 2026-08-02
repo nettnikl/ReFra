@@ -11,6 +11,7 @@ import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismImportOptionsDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismOAuthTokenDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismPhotoDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismSessionDto
+import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismSubjectDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismUploadOptionsDto
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
@@ -57,7 +58,9 @@ interface PhotoPrismApiService {
         @Query("s") albumUid: String? = null,
         @Query("favorite") favorite: Boolean? = null,
         @Query("archived") archived: Boolean? = null,
-        @Query("private") private: Boolean? = null
+        @Query("private") private: Boolean? = null,
+        /** Subject/person UID filter (PhotoPrism `subject` form field). */
+        @Query("subject") subjectUid: String? = null
     ): Response<List<PhotoPrismPhotoDto>>
 
     @GET("api/v1/albums")
@@ -129,4 +132,23 @@ interface PhotoPrismApiService {
     suspend fun batchPrivatePhotos(
         @Body body: Map<String, @JvmSuppressWildcards Any>
     ): Response<Unit>
+    @GET("api/v1/subjects")
+    suspend fun getSubjects(
+        @Query("count") count: Int = 1000,
+        @Query("offset") offset: Int = 0,
+        @Query("type") type: String = "person",
+        @Query("files") files: Int = 1,
+        @Query("order") order: String = "name"
+    ): Response<List<PhotoPrismSubjectDto>>
+
+    @GET("api/v1/subjects/{uid}")
+    suspend fun getSubject(@Path("uid") uid: String): Response<PhotoPrismSubjectDto>
+
+    @PUT("api/v1/subjects/{uid}")
+    suspend fun updateSubject(
+        @Path("uid") uid: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any>
+    ): Response<PhotoPrismSubjectDto>
+
+
 }

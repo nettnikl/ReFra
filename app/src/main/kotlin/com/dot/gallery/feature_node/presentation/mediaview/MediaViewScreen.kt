@@ -56,6 +56,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -358,6 +359,9 @@ fun <T : Media> MediaViewScreen(
         pagerItems.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
     }
     var currentPage by rememberSaveable(initialPage) { mutableIntStateOf(initialPage) }
+    // Stable identity of the open photo. Cloud sync can insert/reorder pagerItems under the
+    // current index; we re-seek by this id so the viewer doesn't spontaneously switch media.
+    var anchoredMediaId by rememberSaveable(mediaId) { mutableLongStateOf(mediaId) }
     var isVideoZoomed by rememberSaveable { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(
@@ -614,6 +618,35 @@ fun <T : Media> MediaViewScreen(
             }
             if (!mediaState.value.isLoading) {
                 currentPage = page
+            }
+        }
+    }
+
+    // Pin identity to the settled page (same rationale as rotation key / #962): cancelled
+    // swipes must not re-anchor to a neighbour that was only briefly currentPage.
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collectLatest { page ->
+            pagerItems.getOrNull(page)?.id?.let { anchoredMediaId = it }
+        }
+    }
+
+    // When sync/merge reshuffles the list, keep showing the same Media.id.
+    LaunchedEffect(pagerItems, slideshowActive, initialPageSetup) {
+        if (!initialPageSetup || slideshowActive || pagerItems.isEmpty()) return@LaunchedEffect
+        if (pagerState.isScrollInProgress) return@LaunchedEffect
+        val target = pagerItems.indexOfFirst { it.id == anchoredMediaId }
+        when {
+            target >= 0 && target != pagerState.currentPage -> {
+                pagerState.scrollToPage(target)
+                currentPage = target
+            }
+            target < 0 -> {
+                val clamped = pagerState.currentPage.coerceIn(0, pagerItems.lastIndex)
+                if (clamped != pagerState.currentPage) {
+                    pagerState.scrollToPage(clamped)
+                }
+                currentPage = clamped
+                anchoredMediaId = pagerItems[clamped].id
             }
         }
     }

@@ -7,6 +7,7 @@ package com.dot.gallery.cloud.photoprism.data.api
 
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismAlbumDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismConfigDto
+import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismGeoCollectionDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismOAuthTokenDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismPhotoDto
 import com.dot.gallery.cloud.photoprism.data.dto.PhotoPrismSessionDto
@@ -51,6 +52,13 @@ interface PhotoPrismApiService {
         @Query("s") albumUid: String? = null,
         @Query("favorite") favorite: Boolean? = null
     ): Response<List<PhotoPrismPhotoDto>>
+
+    /** Places / map markers as GeoJSON FeatureCollection (`coordinates` = [lng, lat]). */
+    @GET("api/v1/geo")
+    suspend fun getGeo(
+        @Query("count") count: Int = 100000,
+        @Query("offset") offset: Int = 0
+    ): Response<PhotoPrismGeoCollectionDto>
 
     @GET("api/v1/albums")
     suspend fun getAlbums(

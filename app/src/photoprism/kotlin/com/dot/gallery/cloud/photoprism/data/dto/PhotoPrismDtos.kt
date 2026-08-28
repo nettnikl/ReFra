@@ -69,6 +69,31 @@ data class PhotoPrismFileDto(
     @SerializedName("Duration") val duration: Long? = null
 )
 
+/** GeoJSON FeatureCollection from `GET /api/v1/geo`. */
+data class PhotoPrismGeoCollectionDto(
+    val type: String? = null,
+    val features: List<PhotoPrismGeoFeatureDto> = emptyList()
+)
+
+data class PhotoPrismGeoFeatureDto(
+    val type: String? = null,
+    val geometry: PhotoPrismGeoGeometryDto? = null,
+    val properties: PhotoPrismGeoPropertiesDto? = null
+)
+
+data class PhotoPrismGeoGeometryDto(
+    val type: String? = null,
+    /** GeoJSON Point: `[longitude, latitude]`. */
+    val coordinates: List<Double>? = null
+)
+
+data class PhotoPrismGeoPropertiesDto(
+    @SerializedName("UID") val uid: String = "",
+    @SerializedName("Hash") val hash: String? = null,
+    @SerializedName("Title") val title: String? = null,
+    @SerializedName("TakenAt") val takenAt: String? = null
+)
+
 data class PhotoPrismPhotoDto(
     @SerializedName("UID") val uid: String = "",
     @SerializedName("Type") val type: String = "image",
